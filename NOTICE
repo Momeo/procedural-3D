@@ -7,7 +7,7 @@ variants.js), by Eddie Belaval, MIT licensed:
 https://github.com/eddiebelaval/sands-of-the-restless
 
 All other code (src/ pipeline files, src/species/, src/gunpals/, examples/)
-is original work by Dreamin Games contributors, also MIT licensed.
+is original work by Momeo, also MIT licensed.
 
 examples/vendor/three.module.js is three.js r170, MIT licensed:
 https://github.com/mrdoob/three.js

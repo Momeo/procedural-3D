@@ -144,7 +144,7 @@ Gun pals average ~1.1k triangles each, pure geometry (zero textures).
 
 ## License & attribution
 
-MIT © Dreamin Games contributors — see [LICENSE](LICENSE).
+MIT © Momeo — see [LICENSE](LICENSE).
 
 `src/core/` is copied verbatim from
 **[sands-of-the-restless](https://github.com/eddiebelaval/sands-of-the-restless)**
