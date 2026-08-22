@@ -1,5 +1,5 @@
 /**
- * gait.js — JS 侧 1:1 复算 Sands animateHumanoid 的关节角（mummy.js，一行未改的是
+ * gait.js — JS 侧 1:1 复算 core 引擎 animateHumanoid 的关节角（mummy.js，一行未改的是
  * 源码；这里是对其公式的转写），输出每个关节的局部旋转四元数到怪海关节纹理。
  *
  * 复算范围 = 行走循环 + 攻击（windup→strike→recover）+ 受击（stagger 趔趄
@@ -465,7 +465,7 @@ export function fillCrawlJoints(d, row, width, prm, spec, stepSpan, dt) {
 
 /**
  * 壳体六足系 rig（hips === torso === body，如 tickbot）的关节填充：
- * 公式转写自 sands 原版引擎的壳体六足机器（物种数据已移除，机器留存）。
+ * 公式转写自 core 引擎的壳体六足机器（物种数据已移除，机器留存）。
  *
  * rig 结构：bake.js 把 body 注册为 HIPS 关节（壳体俯仰/翻滚进链）；六足
  * legs[0..5] 占 HIP/KNEE + LEG2 + LEG3 槽（与 spiderbot 同序：i 偶 L 奇 R，

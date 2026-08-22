@@ -5,7 +5,7 @@ description: AI-assisted workflow for adding a new species to the procedural-3D 
 
 # procedural-3D — writing a new species
 
-The library (repo root): `src/core/` generic machine (sands-of-the-restless, MIT,
+The library (repo root): `src/core/` generic machine (frozen third-party engine, MIT — see NOTICE,
 **verbatim — never modify**), `src/` pipeline (bake/gait/rng/prims/lod/hitvol/ragdoll),
 `src/species/` data tables + factories, `src/gunpals/` living weapons,
 `examples/` five demo pages. Everything is code-generated; there are no asset files.

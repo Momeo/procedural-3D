@@ -6,7 +6,7 @@
  *
  * Layers:
  *   core/     Generic humanoid machine, copied verbatim from
- *             sands-of-the-restless (MIT, Eddie Belaval) — do not modify.
+ *             a frozen third-party engine (MIT, see NOTICE) — do not modify.
  *   (root)    Pipeline: bake.js (bake a rig into one geometry per material +
  *             per-vertex joint ids), gait.js (JS re-implementation of the
  *             walk/attack/stagger formulas writing joint quaternions into a
@@ -23,7 +23,7 @@
  * 'three' (three >= 0.170). See examples/ for complete integrations.
  */
 
-// --- core (sands-of-the-restless engine, verbatim) --------------------------
+// --- core (frozen engine layer, verbatim) ----------------------------------
 export {
   MUMMY, buildHumanoid, createEnemy, strideRate,
 } from './core/mummy.js';

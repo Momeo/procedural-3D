@@ -2,8 +2,8 @@
  * prims.js — 曲面几何原语：cyl（分段圆锥台/锥刺）/ ellipsoid（分段椭球/半球）/
  * lathe（旋转成型）。box 堆不出来的有机与机件剪影语言从这里出。
  *
- * 为什么是新文件而不是改 core/anatomy.js：core/ 一行不可改（sands 原样拷贝的
- * 仓库铁律），而 parts() 的内部（emit/UV 投影）没有 export。这里是与 parts()
+ * 为什么是新文件而不是改 core/anatomy.js：core/ 是冻结引擎层，一行不可改
+ * （仓库铁律），而 parts() 的内部（emit/UV 投影）没有 export。这里是与 parts()
  * **同契约的第二个 builder**，emit/投影/build 按 core 原范式重写：
  *
  *   - 平直着色：法线由变换后顶点逐三角形重算（不是逐顶点平滑）。分段圆柱/球体

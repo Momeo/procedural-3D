@@ -85,8 +85,7 @@ Serve the repository root over HTTP (`python -m http.server`) and open `examples
 Four layers, each depending only on the ones below it:
 
 - **`src/core/`** — the generic machine: `buildHumanoid` / `animateHumanoid` /
-  `strideRate`, copied **verbatim** from
-  [sands-of-the-restless](https://github.com/eddiebelaval/sands-of-the-restless) (MIT).
+  `strideRate`, originally derived from sands-of-the-restless (MIT) — see NOTICE.
   A spec-fed builder assembles a rig of nested `Group` joints with rigid box parts;
   the animator writes joint Euler angles every frame. Do not modify this layer.
 - **`src/` (pipeline)** — the horde machinery: `bake.js` flattens a rig in bind pose into
@@ -146,7 +145,6 @@ Gun pals average ~1.1k triangles each, pure geometry (zero textures).
 
 MIT © Momeo — see [LICENSE](LICENSE).
 
-`src/core/` is copied verbatim from
-**[sands-of-the-restless](https://github.com/eddiebelaval/sands-of-the-restless)**
-by **Eddie Belaval** (MIT); everything else is original work. See [NOTICE](NOTICE).
+`src/core/` contains third-party MIT-licensed engine code — attribution lives in
+[NOTICE](NOTICE). Everything else is original work.
 three.js (r170, MIT) is vendored in `examples/vendor/` for offline demos.

@@ -1,6 +1,6 @@
 /**
- * 程序化丧尸：Sands of the Restless 人形机器（buildHumanoid / animateHumanoid）
- * 驱动的一个新物种。Sands 源码（MIT）在 ../core/ 下原样复用，一行未改。
+ * 程序化丧尸：core 人形机器（buildHumanoid / animateHumanoid）
+ * 驱动的一个新物种。core 是冻结引擎层，在 ../core/ 下原样复用，一行未改。
  *
  * 复用与分工：
  *   - 几何与骨架：mummy.js 的 buildHumanoid 完全通用——它只消费
@@ -298,7 +298,7 @@ export function clothMaps() {
  *   accent   饰件（本 spec 无几何）    → 留位
  *   tatter   破布条（tornStrip）       → 破衣布条，DoubleSide + vertexColors
  *
- * 无 EMISSIVE_FLOOR：那是 Sands 暗室的可读性补丁，与调色无关；查看器与怪海
+ * 无 EMISSIVE_FLOOR：那是引擎原版暗室的可读性补丁，与调色无关；查看器与怪海
  * 都是亮场景，不需要。
  */
 /**
@@ -311,7 +311,7 @@ export function makeZombieMaterials(spec, rng = random) {
   const jitter = (hex, gain, h, s, l) =>
     compensate(hex, gain).offsetHSL(h, s, l);
 
-  // 与 Sands 同幅度的逐实例色调抖动（群体的平均值不动）
+  // 与引擎原版同幅度的逐实例色调抖动（群体的平均值不动）
   const dh = (rng() - 0.5) * 0.05;
   const ds = (rng() - 0.5) * 0.10;
   const dl = (rng() - 0.5) * 0.13;
@@ -342,7 +342,7 @@ export function makeZombieMaterials(spec, rng = random) {
     metalness: 0.0,
   });
 
-  // 浑浊死眼： Sands 的眼是 0.9 强度的琥珀瞳（暗室里指方向用的）；丧尸的
+  // 浑浊死眼：引擎原版的眼是 0.9 强度的琥珀瞳（暗室里指方向用的）；丧尸的
   // 眼是灰白蒙翳，自发光压到刚好看得出「那不是活人的眼睛」。
   const eye = new THREE.MeshStandardMaterial({
     color: 0x20241c,
@@ -366,7 +366,7 @@ export function makeZombieMaterials(spec, rng = random) {
     roughness: 1.0,
     metalness: 0.0,
     side: THREE.DoubleSide,
-    vertexColors: true,   // tornStrip 烘了三段明度的 color 属性，契约同 Sands
+    vertexColors: true,   // tornStrip 烘了三段明度的 color 属性，契约同引擎原版
   });
 
   return { wrap, wrapDark, deep, eye, accent, tatter };
@@ -399,7 +399,7 @@ export function createZombie(spec, index) {
 }
 
 // ---------------------------------------------------------------------------
-// 变体覆盖（sands 原版 extend 的同式）
+// 变体覆盖（引擎原版 extend 的同式）
 // ---------------------------------------------------------------------------
 
 function extend(base, over) {

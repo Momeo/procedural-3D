@@ -1,10 +1,10 @@
 /**
- * 真·爬行者 Crawler：借甲虫机器（sands 原版引擎的壳体六足机器）
+ * 真·爬行者 Crawler：借 core 引擎的壳体六足机器
  * 的范式做的四足贴地爬尸——双足 rig 做不到的事（zombies_ex.js 曾验证过，
  * 腿没有水平化通道，最多到「长臂佝行」）。
  *
  * 借与自写的分界：
- *   - sands 壳体六足机器的 build/animate 不 export（core 一行未改），借的是
+ *   - 引擎壳体六足机器的 build/animate 不 export（core 一行未改），借的是
  *     **范式**：静态外张 mount Group（splay 烘进几何，不在动画关节上）+
  *     两级腿（hip→knee 嵌套 Group，肢体网格从关节向下长）+ 相位表步态。
  *     几何原语 parts()/tornStrip、接触影 contactShadow、WRAP_TILES 都是
