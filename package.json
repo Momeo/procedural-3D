@@ -1,0 +1,28 @@
+{
+  "name": "procedural-3d",
+  "version": "0.1.0",
+  "description": "Zero-asset, spec-driven procedural monsters, horde instancing and living creature-weapons for three.js",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "examples",
+    "skill",
+    "docs"
+  ],
+  "keywords": [
+    "three.js",
+    "procedural-generation",
+    "monsters",
+    "instancing",
+    "ragdoll",
+    "game-development"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "three": ">=0.170"
+  }
+}

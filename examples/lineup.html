@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procedural-3D — species lineup (silhouette check)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;height:100%;background:#101210;color:#ddd8c8;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  #panel{position:fixed;top:10px;left:10px;z-index:2;background:#141812e6;padding:10px 12px;border-radius:6px;max-width:520px}
+  #panel small{color:#9aa088}
+  #stats{margin-top:6px;white-space:pre;color:#bcc4a8}
+  #hint{position:fixed;right:10px;top:8px;color:#9aa088;font-size:12px;text-align:right;z-index:2}
+  #fps{color:#7fd98f}
+  #err{position:fixed;left:10px;bottom:10px;color:#ff7a6a;white-space:pre;z-index:3;font:12px monospace}
+</style>
+</head>
+<body>
+<div id="panel">
+  <b>Lineup — every species walking in place, side by side</b><br>
+  <small>Acceptance: at 20 m each species must read by silhouette alone (no name tags, no color hints)</small>
+  <div id="stats">Building…</div>
+</div>
+<div id="hint">Drag to orbit / wheel to zoom<br>?yaw=&pitch=&dist= camera params<br><span id="fps"></span></div>
+<div id="err"></div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module">import { initNav } from './nav.js'; initNav('lineup');</script>
+<script type="module">
+import * as THREE from 'three';
+import { strideRate } from '../src/core/mummy.js';
+import { SPECIES } from '../src/species/index.js';
+
+addEventListener('error', e => { document.getElementById('err').textContent = 'ERR: ' + e.message; });
+addEventListener('unhandledrejection', e => { document.getElementById('err').textContent = 'ERR: ' + (e.reason && e.reason.message || e.reason); });
+
+const q = new URLSearchParams(location.search);
+// ?species=a,b,c 可选子集；默认全部（按注册表顺序）
+const ids = q.get('species')
+  ? q.get('species').split(',').filter(s => SPECIES[s])
+  : Object.keys(SPECIES);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101210);
+{
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 32);
+  grad.addColorStop(0, '#9fb8d0'); grad.addColorStop(0.5, '#5c6152'); grad.addColorStop(1, '#1c1a14');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  scene.environment = tex;
+}
+scene.add(new THREE.HemisphereLight(0xfff2dd, 0x2e3226, 1.1));
+const sun = new THREE.DirectionalLight(0xffe8c0, 2.2); sun.position.set(3, 6, 4); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x88a0c0, 0.6); fill.position.set(-4, 3, -3); scene.add(fill);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 200);
+
+// --- 一排物种，原地行走 -------------------------------------------------------
+const SPACING = 1.9;
+const actors = [];
+let triTotal = 0;
+ids.forEach((id, i) => {
+  const { spec, factory } = SPECIES[id];
+  const actor = factory(spec, i);
+  actor.rig.group.scale.setScalar(actor.scale);
+  actor.rig.group.position.x = (i - (ids.length - 1) / 2) * SPACING;
+  scene.add(actor.rig.group);
+  actor.animState = {
+    phase: actor.st.phase, speed: 0, windup: 0, strike: 0,
+    stagger: 0, staggerRoll: 0, staggerPitch: 0,
+    hit: 0, hitLX: 0, hitLY: 0.55, hitF: 0, hitS: 0, hitHead: 0,
+  };
+  triTotal += actor.triangles;
+  actors.push(actor);
+});
+
+const rowW = ids.length * SPACING;
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(rowW * 0.9 + 6, rowW * 0.9 + 6, 0.1, 48),
+  new THREE.MeshStandardMaterial({ color: 0x555c48, roughness: 1 }));
+ground.position.y = -0.05;
+scene.add(ground);
+const grid = new THREE.GridHelper(rowW + 12, Math.round(rowW) + 12, 0x3c4434, 0x232a1e);
+scene.add(grid);
+
+// --- 简易轨道（默认机位：正前微俯，整排入画） ---------------------------------
+const orbit = {
+  yaw: +(q.get('yaw') ?? 0),
+  pitch: +(q.get('pitch') ?? 0.10),
+  dist: +(q.get('dist') ?? (rowW * 0.72 + 4)),
+  tx: 0, ty: 1.1,
+};
+function applyOrbit() {
+  const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
+  camera.position.set(
+    orbit.tx + orbit.dist * cp * Math.sin(orbit.yaw),
+    orbit.ty + orbit.dist * sp,
+    orbit.dist * cp * Math.cos(orbit.yaw));
+  camera.lookAt(orbit.tx, orbit.ty, 0);
+}
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+});
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; renderer.domElement.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!drag) return;
+  orbit.yaw -= (e.clientX - drag.x) * 0.006;
+  orbit.pitch = Math.max(-1.2, Math.min(1.4, orbit.pitch + (e.clientY - drag.y) * 0.005));
+  drag = { x: e.clientX, y: e.clientY };
+  applyOrbit();
+});
+addEventListener('pointerup', () => drag = null);
+renderer.domElement.addEventListener('wheel', e => {
+  orbit.dist = Math.max(3, Math.min(60, orbit.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+  applyOrbit();
+}, { passive: true });
+applyOrbit();
+
+// --- 主循环 ---------------------------------------------------------------------
+window.__pmtk = { lineup: ids, ready: false, fps: 0, calls: 0, triangles: 0 };
+const clock = new THREE.Clock();
+let frames = 0, tFps = 0, reported = false;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  for (const actor of actors) {
+    const spec = actor.spec;
+    const speed = spec.speed;
+    actor.st.phase += dt * strideRate(spec, actor.rig, speed);
+    actor.animState.phase = actor.st.phase; actor.animState.speed = speed;
+    spec.animate(actor.rig, spec, actor.animState);
+  }
+  renderer.render(scene, camera);
+  const info = renderer.info.render;
+  if (!reported) {
+    reported = true;
+    document.getElementById('stats').textContent =
+      `${ids.length} species · ${triTotal} tri (total)\n${ids.join(' / ')}`;
+    Object.assign(window.__pmtk, { calls: info.calls, triangles: info.triangles });
+  }
+  frames++; tFps += dt;
+  if (tFps >= 1) {
+    const fps = Math.round(frames / tFps);
+    document.getElementById('fps').textContent = `${fps} fps · draw calls ${info.calls} · tri ${info.triangles}`;
+    Object.assign(window.__pmtk, { fps, calls: info.calls, triangles: info.triangles, ready: true });
+    frames = 0; tFps = 0;
+  }
+});
+</script>
+</body>
+</html>

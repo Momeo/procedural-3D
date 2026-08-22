@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procedural-3D — horde shooter test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;height:100%;background:#14100c;color:#e8e0d0;font:13px/1.4 system-ui,sans-serif;overflow:hidden;cursor:crosshair}
+  #panel{position:fixed;top:10px;left:10px;z-index:2;background:#1c1712e6;padding:10px 12px;border-radius:6px;max-width:400px}
+  #panel small{color:#a89880}
+  #stats{margin-top:6px;white-space:pre;color:#c9bca4}
+  #err{position:fixed;left:10px;bottom:10px;color:#ff7a6a;white-space:pre;z-index:3;font:12px monospace}
+  #cross{position:fixed;left:50%;top:50%;width:14px;height:14px;transform:translate(-50%,-50%);z-index:2;pointer-events:none}
+  #cross::before,#cross::after{content:'';position:absolute;background:#e8e0d0cc}
+  #cross::before{left:6px;top:0;width:2px;height:14px}
+  #cross::after{left:0;top:6px;width:14px;height:2px}
+  #lock{position:fixed;left:50%;top:58%;transform:translateX(-50%);z-index:2;color:#e8e0d0;background:#1c1712cc;padding:6px 14px;border-radius:6px;pointer-events:none}
+  /* 被怪挥击打中的屏幕边缘红闪（纯视觉，无 HP） */
+  #hurt{position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0;
+    box-shadow:inset 0 0 120px 46px rgba(255,26,8,.62)}
+</style>
+</head>
+<body>
+<div id="panel">
+  <b>Horde shooter test</b> <small>hitscan · per-part hit boxes (no raycast geometry)</small><br>
+  <small>Click to lock pointer · WASD move · LMB fire · head=critical ×3 · limbs ×0.5</small>
+  <div id="stats">Baking…</div>
+</div>
+<div id="cross"></div>
+<div id="hurt"></div>
+<div id="lock">Click to lock the pointer and start</div>
+<div id="err"></div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module">import { initNav } from './nav.js'; initNav('shooter');</script>
+<script type="module">
+import * as THREE from 'three';
+import { SPECIES } from '../src/species/index.js';
+import { bakeMummy, MAX_JOINTS, MAX_CHAIN, J } from '../src/bake.js';
+import { makeGaitParams, fillJoints, triggerAttack, triggerStagger } from '../src/gait.js';
+import { random, hashStr } from '../src/rng.js';
+import { makeLodGater, makeCullGrid } from '../src/lod.js';
+import { PART_MULT, rowReader, beginFk, fkBoxMatrix, coarseSphereWorld, raycastWorld, hitboxCenterWorld } from '../src/hitvol.js';
+import { makeRagdollPool, RAGDOLL_MAX } from '../src/ragdoll.js';
+
+addEventListener('error', e => { document.getElementById('err').textContent = 'ERR: ' + e.message; });
+addEventListener('unhandledrejection', e => { document.getElementById('err').textContent = 'ERR: ' + (e.reason && e.reason.message || e.reason); });
+
+const q = new URLSearchParams(location.search);
+const TOTAL = Math.max(24, Math.min(1200, +q.get('n') || 300));
+const FIELD_R = 16;
+const TAU = Math.PI * 2;
+// 性能双件套（src/lod.js，与 horde 同一 helper）：
+// 距离分级动画更新默认开（?lod=0 关；强制每帧档 = 攻击/受击/闪白/近身 <15m）；
+// 网格剔除默认关（?cull=1 开——shooter 怪少收益小，开它只为联调验证，
+// draw call 上界变 ×4，既有 draw-call 预算探针以默认档为准）
+const LOD_ON = q.get('lod') !== '0';
+const CULL = q.get('cull') === '1';
+const gater = makeLodGater();
+const grid = makeCullGrid({ half: 20, cells: 2, margin: 3 });
+
+// 伤害表：躯干 25，爆头 ×3=75，四肢 ×0.5=12.5（倍率表在 hitvol.js PART_MULT）。
+// zombie/runner/screecher/crawler/tickbot 爆头一枪死，bloater 两发爆头，brute 三发。
+// tickbot 26 = 四肢两连击（25）后剩 1 血——不然第二枪先致死，断肢永远触发不到。
+const HP = { zombie: 30, crawler: 20, runner: 24, screecher: 26, bloater: 80, brute: 160,
+  tickbot: 26, spiderbot: 42, centaurbot: 95, titan: 320, maggot: 20 };
+const BODY_DMG = 25;
+// 配比同 horde 丧尸海；?species=xxx 切单物种模式（探针/专项验收用，默认不动）
+const ONLY = SPECIES[q.get('species')] ? q.get('species') : null;
+const MIX = ONLY ? [{ id: ONLY, share: 1 }] : [
+  { id: 'zombie', share: 0.32 }, { id: 'crawler', share: 0.25 },
+  { id: 'runner', share: 0.20 }, { id: 'bloater', share: 0.10 },
+  { id: 'screecher', share: 0.10 }, { id: 'brute', share: 0.03, min: 2 },
+];
+
+// --- renderer / scene ---------------------------------------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14100c);
+{
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 32);
+  grad.addColorStop(0, '#9fb8d0'); grad.addColorStop(0.5, '#6a5f4c'); grad.addColorStop(1, '#241d14');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  scene.environment = tex;
+}
+scene.add(new THREE.HemisphereLight(0xfff2dd, 0x3a2f22, 1.1));
+const sun = new THREE.DirectionalLight(0xffe8c0, 2.2); sun.position.set(3, 6, 4); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x88a0c0, 0.6); fill.position.set(-4, 3, -3); scene.add(fill);
+
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(FIELD_R + 14, FIELD_R + 14, 0.1, 48),
+  new THREE.MeshStandardMaterial({ color: 0x8a7250, roughness: 1 }));
+ground.position.y = -0.05;
+scene.add(ground);
+scene.add(new THREE.GridHelper((FIELD_R + 14) * 2, 36, 0x4a3f30, 0x2c251c));
+
+// --- FPS 相机 ------------------------------------------------------------------
+// 移动/视角层：dampF 指数阻尼加减速 + 走 4.3/冲刺 6.4 + 速度加权 bob +
+//   ±160px/事件位移钳 + 120ms 锁定宽限 + YXZ/pitch ±1.45。
+// pointer lock 请求带 unadjustedMovement（绕开 Windows 指针加速，
+// 不支持则回退普通锁定）。与射击/命中逻辑零耦合。
+const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.01, 200);
+camera.rotation.order = 'YXZ';
+scene.add(camera);
+const dampF = (cur, tgt, k, dt) => THREE.MathUtils.lerp(tgt, cur, Math.exp(-k * dt));
+const player = { x: 0, z: 13, yaw: 0, pitch: -0.06, eye: 1.6, vx: 0, vz: 0, sprinting: false };
+let camBobT = 0;
+function applyCam() {
+  camera.position.set(player.x, player.eye, player.z);
+  camera.rotation.set(player.pitch, player.yaw, 0);
+}
+applyCam();
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+});
+
+let locked = false;
+let lockGraceUntil = 0;   // 锁定切换后浏览器可能给一次异常 movementX，120ms 宽限
+const canvas = renderer.domElement;
+canvas.addEventListener('click', () => {
+  if (locked) return;
+  try {
+    const r = canvas.requestPointerLock({ unadjustedMovement: true });
+    if (r && r.catch) r.catch(() => { try { canvas.requestPointerLock(); } catch (e) {} });
+  } catch (e) { try { canvas.requestPointerLock(); } catch (e2) {} }
+});
+const keys = {};
+function clearKeys() { for (const k in keys) keys[k] = false; }
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === canvas;
+  lockGraceUntil = performance.now() + 120;
+  if (!locked) clearKeys();          // ESC 解锁时清按键，防卡键
+  document.getElementById('lock').style.display = locked ? 'none' : '';
+});
+addEventListener('blur', clearKeys);
+document.addEventListener('mousemove', (e) => {
+  if (!locked) return;
+  if (performance.now() < lockGraceUntil) return;
+  let mx = e.movementX, my = e.movementY;
+  if (!isFinite(mx) || !isFinite(my)) return;
+  mx = Math.max(-160, Math.min(160, mx));   // 钳制单事件位移，消 1 帧瞬转尖峰
+  my = Math.max(-160, Math.min(160, my));
+  player.yaw -= mx * 0.0022;
+  player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - my * 0.0022));
+});
+let firing = false;
+document.addEventListener('mousedown', (e) => { if (locked && e.button === 0) firing = true; });
+document.addEventListener('mouseup', (e) => { if (e.button === 0) firing = false; });
+document.addEventListener('keydown', (e) => keys[e.code] = true);
+document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+// --- 枪视模型（程序化盒子枪，零资产占位，不阻塞主测试） --------------------------
+let vm = null;
+{
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x2c2c30, roughness: 0.6, metalness: 0.5 });
+  const bodym = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.14, 0.42), mat);
+  const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 0.3), mat);
+  barrel.position.set(0, 0.05, -0.32);
+  g.add(bodym, barrel);
+  g.position.set(0.22, -0.18, -0.45);
+  camera.add(g);
+  let kickT = 0;
+  vm = {
+    kick() { kickT = 1; },
+    flash() {},
+    update(dt) { kickT = Math.max(0, kickT - dt * 8); g.position.z = -0.45 + kickT * 0.05; },
+    muzzle: new THREE.Vector3(0.22, -0.13, -0.8),
+  };
+}
+
+// --- 怪海（批次数组同 horde.html mix 模式；着色器补丁的 flash 通道改红闪） -------
+const VERT_HEAD = /* glsl */`
+attribute float aJoint;
+attribute float aRow;
+uniform sampler2D uJoints;
+uniform vec3 uPiv[${MAX_JOINTS}];
+uniform int uChainStart[${MAX_JOINTS}];
+uniform int uChainLen[${MAX_JOINTS}];
+uniform int uChainList[${MAX_JOINTS * MAX_CHAIN}];
+varying float vFlash;
+vec4 hQmul(vec4 a, vec4 b) {
+  return vec4(
+    a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z);
+}
+vec3 hQrot(vec4 q, vec3 v) {
+  vec3 t = 2.0 * cross(q.xyz, v);
+  return v + q.w * t + cross(q.xyz, t);
+}
+`;
+const BEGINNORMAL = /* glsl */`
+#include <beginnormal_vertex>
+int hRow = int(aRow + 0.5);
+vec4 hMeta = texelFetch(uJoints, ivec2(0, hRow), 0);
+vFlash = hMeta.y;
+float hBob = hMeta.x;
+int hMask = int(hMeta.z + 0.5);       // 断肢掩码：bit j = 关节 j 及下游隐藏
+bool hHide = false;
+int hLeaf = int(aJoint + 0.5);
+vec4 hQ = vec4(0.0, 0.0, 0.0, 1.0);
+vec3 hT = vec3(0.0);
+{
+  int hCs = uChainStart[hLeaf];
+  int hCl = uChainLen[hLeaf];
+  for (int hCi = 0; hCi < hCl; ++hCi) {
+    int hJ = uChainList[hCs + hCi];
+    if ((hMask & (1 << hJ)) != 0) hHide = true;   // 链上任一关节被断 → 塌缩
+    vec4 hJq = texelFetch(uJoints, ivec2(hJ, hRow), 0);
+    vec3 hPiv = uPiv[hJ];
+    hT += hQrot(hQ, hPiv - hQrot(hJq, hPiv));
+    hQ = hQmul(hQ, hJq);
+  }
+}
+if (hLeaf > 0) objectNormal = hQrot(hQ, objectNormal);
+`;
+const BEGIN = /* glsl */`
+#include <begin_vertex>
+if (hHide) {
+  transformed = vec3(0.0);            // 断肢：顶点塌缩成退化三角形（乘零，不用 NaN）
+} else if (hLeaf > 0) {
+  transformed = hQrot(hQ, transformed) + hT;
+  transformed.y += hBob;
+}
+`;
+const FRAG_HEAD = /* glsl */`varying float vFlash;\n`;
+// 红闪：vFlash ∈ [0,2]，>1 是爆头档（更亮更久）
+const COLOR_FRAG = /* glsl */`
+#include <color_fragment>
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(4.5, 0.30, 0.15), clamp(vFlash, 0.0, 1.0));
+diffuseColor.rgb += vec3(3.5, 0.35, 0.1) * max(0.0, vFlash - 1.0);
+`;
+
+const batches = [];
+const statsEl = document.getElementById('stats');
+{
+  // 配比取整，舍入差补到大份额物种
+  const counts = MIX.map(r => Math.max(r.min || 0, Math.round(TOTAL * r.share)));
+  let diff = TOTAL - counts.reduce((a, b) => a + b, 0), k = 0;
+  while (diff !== 0) { counts[k % counts.length] += Math.sign(diff); diff -= Math.sign(diff); k++; }
+  for (let m = 0; m < MIX.length; m++) {
+    const { id } = MIX[m];
+    const { spec, factory } = SPECIES[id];
+    statsEl.textContent = `Baking… ${id} (${m + 1}/${MIX.length})`;
+    await new Promise(r => setTimeout(r));
+    batches.push({
+      id, spec, factory, n: counts[m], baked: bakeMummy(factory, spec), states: [],
+      // 部件碰撞盒表 + 粗筛总球随 baked 产出（hitvol.js 唯一真源消费）
+    });
+  }
+}
+
+const hordeGroup = new THREE.Group();
+scene.add(hordeGroup);
+
+// 浅共享几何：剔除模式下每格一份 geometry 壳（属性缓冲共享），才能给每格
+// 挂自己的 aRow instanced attribute（格内槽位→全局纹理行号映射，同 horde）
+function shareGeometry(src) {
+  const g = new THREE.BufferGeometry();
+  g.index = src.index;
+  for (const name in src.attributes) g.setAttribute(name, src.attributes[name]);
+  return g;
+}
+
+function makeGroup(b) {
+  return {
+    list: [],
+    mat: new THREE.InstancedBufferAttribute(new Float32Array(b.n * 16), 16),
+    row: new THREE.InstancedBufferAttribute(new Float32Array(b.n), 1),
+    meshes: null,
+  };
+}
+
+function ensureGroupMeshes(b, g, cellIdx) {
+  if (g.meshes) return;
+  g.meshes = [];
+  g.mat.setUsage(THREE.DynamicDrawUsage);
+  g.row.setUsage(THREE.DynamicDrawUsage);
+  let sphere = null;
+  if (CULL) {
+    const s = grid.cellSphere(cellIdx);
+    sphere = new THREE.Sphere(new THREE.Vector3(s.cx, s.cy, s.cz), s.r);
+  }
+  for (const part of b.baked.parts) {
+    const geo = CULL ? shareGeometry(part.geometry) : part.geometry;
+    geo.setAttribute('aRow', g.row);
+    const mat = part.blob ? part.material : b.patch(part.material.clone());
+    const im = new THREE.InstancedMesh(geo, mat, b.n);
+    im.instanceMatrix = g.mat;
+    if (CULL) { im.frustumCulled = true; im.boundingSphere = sphere; }
+    else im.frustumCulled = false;
+    im.count = 0;
+    hordeGroup.add(im);
+    g.meshes.push(im);
+  }
+}
+
+// 实例格子重分配（0.5s 一次）：重排组内名单 + aRow 映射 + st.cell/st.cellSlot。
+// 死亡沉入/重生换位都在下次重分配自然归格
+function rebuildCells(b) {
+  for (const g of b.groups) g.list.length = 0;
+  for (let i = 0; i < b.n; i++) {
+    const st = b.states[i];
+    const c = CULL ? grid.cellIndex(st.x, st.z) : 0;
+    st.cell = c;
+    st.cellSlot = b.groups[c].list.length;
+    b.groups[c].list.push(i);
+  }
+  for (let c = 0; c < b.groups.length; c++) {
+    const g = b.groups[c];
+    if (!g.list.length) {
+      if (g.meshes) for (const im of g.meshes) im.count = 0;
+      continue;
+    }
+    ensureGroupMeshes(b, g, c);
+    for (let s = 0; s < g.list.length; s++) g.row.array[s] = g.list[s];
+    g.row.needsUpdate = true;
+    for (const im of g.meshes) im.count = g.list.length;
+  }
+}
+
+function cullReassign() {
+  if (!CULL) return;
+  for (const b of batches) {
+    let dirty = false;
+    for (let i = 0; i < b.n; i++) {
+      if (grid.cellIndex(b.states[i].x, b.states[i].z) !== b.states[i].cell) { dirty = true; break; }
+    }
+    if (dirty) rebuildCells(b);
+  }
+}
+
+// 实例矩阵写当前格缓冲（主循环/死亡路径/布娃娃路径统一走这里）
+function writeInstMat(b, st) {
+  m4.toArray(b.groups[st.cell].mat.array, st.cellSlot * 16);
+}
+
+for (const b of batches) {
+  b.jointData = new Float32Array(MAX_JOINTS * b.n * 4);
+  b.jointTex = new THREE.DataTexture(b.jointData, MAX_JOINTS, b.n, THREE.RGBAFormat, THREE.FloatType);
+  b.jointTex.minFilter = b.jointTex.magFilter = THREE.NearestFilter;
+  b.jointTex.generateMipmaps = false;
+
+  const baked = b.baked;
+  const pivArr = [];
+  for (let i = 0; i < MAX_JOINTS; i++) {
+    pivArr.push(new THREE.Vector3(baked.pivots[i * 3], baked.pivots[i * 3 + 1], baked.pivots[i * 3 + 2]));
+  }
+  b.patch = (mat) => {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uJoints = { value: b.jointTex };
+      shader.uniforms.uPiv = { value: pivArr };
+      shader.uniforms.uChainStart = { value: baked.chainStart };
+      shader.uniforms.uChainLen = { value: baked.chainLen };
+      shader.uniforms.uChainList = { value: baked.chainList };
+      shader.vertexShader = VERT_HEAD + shader.vertexShader
+        .replace('#include <beginnormal_vertex>', BEGINNORMAL)
+        .replace('#include <begin_vertex>', BEGIN);
+      shader.fragmentShader = FRAG_HEAD + shader.fragmentShader
+        .replace('#include <color_fragment>', COLOR_FRAG);
+    };
+    return mat;
+  };
+
+  b.groups = [];
+  for (let c = 0, gc = CULL ? grid.cells * grid.cells : 1; c < gc; c++) b.groups.push(makeGroup(b));
+
+  // 每实例状态（含战斗字段；全部预分配，运行期零分配）
+  // 随机全走 rng.js：位置/朝向 = 模块级 RNG（?seed=）；步态 = 实例种子派生
+  for (let i = 0; i < b.n; i++) {
+    const r = FIELD_R * 0.85 * Math.sqrt(random());
+    const a = random() * TAU;
+    const params = makeGaitParams(b.spec, (hashStr(b.id) + i * 2654435761) >>> 0);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const heading = random() * TAU;
+    b.states.push({
+      x, z, heading,
+      speed: params.speed, baseSpeed: params.speed, scale: params.scale, params,
+      cell: -1, cellSlot: i,            // 剔除网格（rebuildCells 填；CULL 关时恒 0/i）
+      lodDt: 0, lodTier: 0,             // 距离分级（lod.js gater 填）
+      hp: HP[b.id], dead: 0, fallDir: 1,
+      ox: 0, oz: 0,                 // 受击击退瞬时位移（衰减）
+      severMask: 0,                 // 断肢掩码（bit j = 关节 j 及下游隐藏）
+      limbHits: { armL: 0, armR: 0, legL: 0, legR: 0 },   // 四肢累计受击（断肢触发）
+      ragSlot: -1,                  // 布娃娃槽位（-1 = 非布娃娃死亡）
+      atkCd: random() * 1.5,        // 攻击冷却（近身 ≤1.8m 起攻击循环）
+      blowDone: false,              // 本次挥击是否已结算（红闪去重）
+      atkFrozen: false,             // 攻击中步态/移动冻结（原版 busy 语义）
+      // 出厂快照（探针用）
+      init: { x, z, heading, speed: params.speed, phase: params.phase,
+        scale: params.scale, gjStride: params.gjStride, gjSwing: params.gjSwing,
+        tilt: params.tilt, reach: params.reach },
+    });
+  }
+
+  // 初始姿态全量写一次（dt=0：冻结档实例的第一帧也有正确姿态而非全零行），
+  // 然后排格（rebuildCells 惰性建各格 InstancedMesh）
+  for (let i = 0; i < b.n; i++) {
+    fillJoints(b.jointData, i, MAX_JOINTS, b.states[i].params, b.spec, b.baked.stepSpan, 0);
+  }
+  b.jointTex.needsUpdate = true;
+  rebuildCells(b);
+}
+
+// --- 部件级碰撞盒判定（hitvol.js 唯一真源） ---------------------------------------
+// 每实例 ~11 个 OBB（头/躯干/髋/双臂×2/双腿×2，爬行者同机制）+ 一个粗筛总球，
+// 全部生成期随 bake 产出。运行时零每帧开销：开枪才判定——粗筛球过滤，
+// 精筛把射线逆变换进各部件 bind 局部系做 slab（盒静止、动的是射线）。
+// index.html 的「显示碰撞体」开关画的就是这份数据。
+
+// --- 血粒子池（1 draw call，预分配环形） -----------------------------------------
+const PMAX = 500;
+const pPos = new Float32Array(PMAX * 3);
+const pVel = new Float32Array(PMAX * 3);
+const pLife = new Float32Array(PMAX);        // 0 = 空槽
+const pSize = new Float32Array(PMAX);
+let pCursor = 0, pActive = 0;
+const bloodMesh = new THREE.InstancedMesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshBasicMaterial({ color: 0xa81c08 }), PMAX);
+bloodMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+bloodMesh.frustumCulled = false;
+hordeGroup.add(bloodMesh);
+const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+for (let i = 0; i < PMAX; i++) bloodMesh.setMatrixAt(i, ZERO_M);
+
+function bloodBurst(x, y, z, n, spread, up) {
+  for (let k = 0; k < n; k++) {
+    const i = pCursor; pCursor = (pCursor + 1) % PMAX;
+    pPos[i * 3] = x; pPos[i * 3 + 1] = y; pPos[i * 3 + 2] = z;
+    const a = random() * TAU, e = (random() - 0.3) * spread;
+    const v = 1.2 + random() * 2.2;
+    pVel[i * 3] = Math.cos(a) * Math.cos(e) * v;
+    pVel[i * 3 + 1] = Math.sin(e) * v + up;
+    pVel[i * 3 + 2] = Math.sin(a) * Math.cos(e) * v;
+    pLife[i] = 0.5 + random() * 0.35;
+    pSize[i] = 0.02 + random() * 0.035;
+  }
+}
+
+const _pm = new THREE.Matrix4();
+function updateBlood(dt) {
+  pActive = 0;
+  for (let i = 0; i < PMAX; i++) {
+    if (pLife[i] <= 0) continue;
+    pLife[i] -= dt;
+    if (pLife[i] <= 0) { bloodMesh.setMatrixAt(i, ZERO_M); continue; }
+    pActive++;
+    pVel[i * 3 + 1] -= 6.5 * dt;
+    pPos[i * 3] += pVel[i * 3] * dt;
+    pPos[i * 3 + 1] += pVel[i * 3 + 1] * dt;
+    pPos[i * 3 + 2] += pVel[i * 3 + 2] * dt;
+    if (pPos[i * 3 + 1] < 0.015) { pPos[i * 3 + 1] = 0.015; pVel[i * 3 + 1] *= -0.25; }
+    const s = pSize[i] * Math.min(1, pLife[i] * 4);
+    _pm.makeScale(s, s, s);
+    _pm.setPosition(pPos[i * 3], pPos[i * 3 + 1], pPos[i * 3 + 2]);
+    bloodMesh.setMatrixAt(i, _pm);
+  }
+  bloodMesh.instanceMatrix.needsUpdate = true;
+}
+
+// --- 血渍贴片池（1 draw call，深色不透明圆片，避透明排序） ------------------------
+const DMAX = 48;
+const dLife = new Float32Array(DMAX);        // 0 = 空槽
+const dPos = new Float32Array(DMAX * 2);
+const dRad = new Float32Array(DMAX);
+let dCursor = 0;
+const decalMesh = new THREE.InstancedMesh(
+  new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ color: 0x400f06 }), DMAX);
+decalMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+decalMesh.frustumCulled = false;
+hordeGroup.add(decalMesh);
+for (let i = 0; i < DMAX; i++) decalMesh.setMatrixAt(i, ZERO_M);
+
+function decalDrop(x, z, r) {
+  const i = dCursor; dCursor = (dCursor + 1) % DMAX;
+  dPos[i * 2] = x; dPos[i * 2 + 1] = z;
+  dRad[i] = r;
+  dLife[i] = 8;
+}
+function updateDecals(dt) {
+  for (let i = 0; i < DMAX; i++) {
+    if (dLife[i] <= 0) continue;
+    dLife[i] -= dt;
+    if (dLife[i] <= 0) { decalMesh.setMatrixAt(i, ZERO_M); continue; }
+    // 前 0.25s 摊开，最后 2s 收缩回收
+    const grow = Math.min(1, (8 - dLife[i]) / 0.25);
+    const fade = Math.min(1, dLife[i] / 2);
+    const s = dRad[i] * grow * fade;
+    _pm.makeScale(s, 1, s);
+    _pm.setPosition(dPos[i * 2], 0.012 + i * 0.0004, dPos[i * 2 + 1]);
+    decalMesh.setMatrixAt(i, _pm);
+  }
+  decalMesh.instanceMatrix.needsUpdate = true;
+}
+
+// --- 断肢飞舞池（≤6 draw call，满了最老的直接消失） ------------------------------
+// 几何来自 bake.js 的 baked.debris[joint]（子树合并单几何 + 主材质，原点 = 子树
+// 包围盒中心）；出生位姿 = 实例世界矩阵 × 关节 FK 矩阵（hitvol 同公式），之后纯
+// JS 弹道（重力 + 自旋），落地停 3-5s 回收。材质直接用烘焙原材质（未打 instancing
+// 补丁），普通 Mesh 逐槽切换 geometry/material 引用，零分配。
+const DEBRIS_MAX = 6;
+const ragPool = makeRagdollPool();
+const debrisPool = [];
+{
+  const dummyGeo = new THREE.BufferGeometry();
+  dummyGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+  for (let k = 0; k < DEBRIS_MAX; k++) {
+    const mesh = new THREE.Mesh(dummyGeo, new THREE.MeshBasicMaterial());
+    mesh.matrixAutoUpdate = false;
+    mesh.visible = false;
+    mesh.frustumCulled = false;
+    hordeGroup.add(mesh);
+    debrisPool.push({
+      mesh, active: false, t: 0, rest: 0, landed: false,
+      px: 0, py: 0, pz: 0, vx: 0, vy: 0, vz: 0,
+      q0: new THREE.Quaternion(), axis: new THREE.Vector3(0, 1, 0), spin: 8, s: 1,
+    });
+  }
+}
+const _im = new THREE.Matrix4();      // 实例世界矩阵（pos/heading/scale）
+const _sm = new THREE.Matrix4();      // 断肢出生矩阵 = 实例世界 × 关节 FK
+const _jp = new THREE.Vector3();
+const _dq = new THREE.Quaternion(), _hq = new THREE.Quaternion();
+const _ds = new THREE.Vector3();
+
+/** 关节世界矩阵：实例变换 × 关节 FK（含 bob）。out 复用。 */
+function jointWorldMatrix(b, i, joint, out) {
+  const st = b.states[i];
+  rowReader.set(b.jointData, i, MAX_JOINTS);
+  beginFk();
+  fkBoxMatrix(b.baked, rowReader, joint, out);
+  _hq.setFromAxisAngle(YAXIS, st.heading);
+  _jp.set(st.x + st.ox, 0, st.z + st.oz);
+  _ds.setScalar(st.scale);
+  _im.compose(_jp, _hq, _ds);
+  out.premultiply(_im);
+  return out;
+}
+
+/** 断肢入池：从关节缝飞出（抛物线 + 自旋），落地停 3-5s 回收；满了顶掉最老的。 */
+function debrisSpawn(b, i, joint, dx, dy, dz) {
+  const d = b.baked.debris[joint];
+  if (!d) return;
+  let slot = debrisPool.find(s => !s.active);
+  if (!slot) {                       // 超上限：最老的直接消失
+    slot = debrisPool[0];
+    for (const s of debrisPool) if (s.t > slot.t) slot = s;
+  }
+  jointWorldMatrix(b, i, joint, _sm);
+  _sm.decompose(_jp, _dq, _ds);      // _jp 弃用（原点 ≠ 关节 pivot，几何已中心归零）
+  _jp.set(d.center[0], d.center[1], d.center[2]).applyMatrix4(_sm);   // 子树中心世界位
+  slot.px = _jp.x; slot.py = _jp.y; slot.pz = _jp.z;
+  const v = 1.6 + random() * 1.2;
+  slot.vx = dx * v + (random() - 0.5) * 1.6;
+  slot.vy = Math.abs(dy) * v + 2.4 + random() * 1.2;
+  slot.vz = dz * v + (random() - 0.5) * 1.6;
+  slot.q0.copy(_dq);
+  slot.axis.set(random() - 0.5, random() - 0.5, random() - 0.5).normalize();
+  slot.spin = 6 + random() * 7;
+  slot.s = _ds.x;
+  slot.t = 0; slot.rest = 3 + random() * 2;
+  slot.landed = false; slot.active = true;
+  slot.mesh.geometry = b.baked.debris[joint].geometry;
+  slot.mesh.material = b.baked.debris[joint].material;
+  slot.mesh.visible = true;
+}
+
+function updateDebris(dt) {
+  for (const slot of debrisPool) {
+    if (!slot.active) continue;
+    slot.t += dt;
+    if (!slot.landed) {
+      slot.vy -= 9.8 * dt;
+      slot.px += slot.vx * dt; slot.py += slot.vy * dt; slot.pz += slot.vz * dt;
+      const minY = 0.07 * slot.s;
+      if (slot.py < minY) {
+        slot.py = minY;
+        slot.vy = -slot.vy * 0.3; slot.vx *= 0.55; slot.vz *= 0.55;
+        if (Math.abs(slot.vy) < 0.9) slot.landed = true;
+      }
+      _dq.setFromAxisAngle(slot.axis, slot.spin * slot.t).multiply(slot.q0);
+    } else {
+      slot.rest -= dt;
+      if (slot.rest <= 0) { slot.active = false; slot.mesh.visible = false; continue; }
+    }
+    _jp.set(slot.px, slot.py, slot.pz);
+    _ds.setScalar(slot.s);
+    slot.mesh.matrix.compose(_jp, slot.landed ? slot.q0 : _dq, _ds);
+  }
+}
+
+// --- 断肢触发 ------------------------------------------------------------------
+// 规则：四肢部位累计受击 2 次断（断点 = 中弹关节缝：肘中弹断前臂、肩中弹断整臂）；
+// 爆头致死 = 断头飞出（startDeath 里做）；断双腿（两膝或两髋）→ 切缺腿爬行步态；
+// 断单腿 → 跛行降速。常量见面板。
+const SEVER_HITS = 2;
+const LIMB_OF_JOINT = {
+  [J.SH_L]: 'armL', [J.EL_L]: 'armL', [J.SH_R]: 'armR', [J.EL_R]: 'armR',
+  [J.HIP_L]: 'legL', [J.KNEE_L]: 'legL', [J.HIP_R]: 'legR', [J.KNEE_R]: 'legR',
+  // 多肢体扩展位（机器人物种）：计数归并到同侧 limb 桶
+  [J.LEG2_L]: 'legL', [J.KNEE2_L]: 'legL', [J.LEG2_R]: 'legR', [J.KNEE2_R]: 'legR',
+  [J.LEG3_L]: 'legL', [J.KNEE3_L]: 'legL', [J.LEG3_R]: 'legR', [J.KNEE3_R]: 'legR',
+  [J.ARM2_L]: 'armL', [J.EL2_L]: 'armL', [J.ARM2_R]: 'armR', [J.EL2_R]: 'armR',
+};
+// 断点升级：目标关节已断 → 升级到近端关节（肘→肩、膝→髋，扩展位同理）
+const PROXIMAL = { [J.EL_L]: J.SH_L, [J.EL_R]: J.SH_R, [J.KNEE_L]: J.HIP_L, [J.KNEE_R]: J.HIP_R,
+  [J.KNEE2_L]: J.LEG2_L, [J.KNEE2_R]: J.LEG2_R, [J.KNEE3_L]: J.LEG3_L, [J.KNEE3_R]: J.LEG3_R,
+  [J.EL2_L]: J.ARM2_L, [J.EL2_R]: J.ARM2_R };
+// severAt 钩子的关节名表
+const SEVER_NAMES = {
+  neck: J.NECK,
+  shoulderL: J.SH_L, elbowL: J.EL_L, shoulderR: J.SH_R, elbowR: J.EL_R,
+  hipL: J.HIP_L, kneeL: J.KNEE_L, hipR: J.HIP_R, kneeR: J.KNEE_R,
+  leg2L: J.LEG2_L, knee2L: J.KNEE2_L, leg2R: J.LEG2_R, knee2R: J.KNEE2_R,
+  leg3L: J.LEG3_L, knee3L: J.KNEE3_L, leg3R: J.LEG3_R, knee3R: J.KNEE3_R,
+  arm2L: J.ARM2_L, elbow2L: J.EL2_L, arm2R: J.ARM2_R, elbow2R: J.EL2_R,
+};
+
+function severLimb(b, i, joint, dx, dy, dz) {
+  const st = b.states[i];
+  if (st.severMask & (1 << joint)) return false;
+  st.severMask |= (1 << joint);
+  st.params.severMask = st.severMask;          // gait.js 每帧写纹理列 0.z
+  // 断肢 = 满强度受击趔趄（方向取弹道在怪本地系的分量，同 registerHit 换算）
+  {
+    const th = st.heading, c = Math.cos(th), sn = Math.sin(th);
+    triggerStagger(st.params, { s: c * dx - sn * dz, f: sn * dx + c * dz, ly: 0.5, k: 1 });
+  }
+  stats.severCount++;
+  // 断口喷血：FK 取关节世界位置（hitvol 同公式直读纹理行）
+  jointWorldMatrix(b, i, joint, _sm);
+  _jp.set(b.baked.pivots[joint * 3], b.baked.pivots[joint * 3 + 1], b.baked.pivots[joint * 3 + 2])
+    .applyMatrix4(_sm);
+  bloodBurst(_jp.x, _jp.y, _jp.z, 16, 1.5, 2.0);
+  debrisSpawn(b, i, joint, dx, dy, dz);
+  // 步态后果（速度从 baseSpeed 确定性重算，不叠加；攻击冻结中则改写
+  // speedSave，等攻击结束的恢复逻辑带出，防跛行被冻结恢复冲掉）
+  const legL = (st.severMask & ((1 << J.HIP_L) | (1 << J.KNEE_L))) !== 0;
+  const legR = (st.severMask & ((1 << J.HIP_R) | (1 << J.KNEE_R))) !== 0;
+  let newSp = -1;
+  if (legL && legR) {
+    if (!b.spec.gait.crawl && !b.spec.gait.kind) {
+      st.params.crawl = true;                  // 人形 → 缺腿爬行（gait.js 逐实例切换）
+      newSp = b.spec.speed * 0.32;
+    } else {
+      newSp = st.baseSpeed * 0.5;              // 爬行/多足种本来就爬，只降速
+    }
+  } else if (legL || legR) {
+    newSp = st.baseSpeed * 0.55;               // 跛行
+  }
+  if (newSp > 0) {
+    if (st.atkFrozen) st.speedSave = newSp;
+    else { st.speed = st.params.speed = newSp; }
+  }
+  return true;
+}
+
+
+// --- 射击 -----------------------------------------------------------------------
+const stats = { shots: 0, hits: 0, headshots: 0, kills: 0, severCount: 0, parts: {}, dmgWin: new Float32Array(128), dmgT: new Float64Array(128), dmgI: 0 };
+const _rayO = new THREE.Vector3(), _rayD = new THREE.Vector3();
+const _cs = { x: 0, y: 0, z: 0, r: 0 };
+const _hit = { t: 0, part: '', joint: 0 };
+const _aimV = new THREE.Vector3();
+const _proO = new THREE.Vector3(), _proD = new THREE.Vector3();   // raycast 探针专用
+let fireCooldown = 0;
+let coarseLast = 0, boxTestsLast = 0;   // 上一枪的粗筛通过数/盒测试数（state 探针读）
+
+// 射线 vs 全部存活实例：粗筛总球 → 精筛部件盒，取最近命中
+function traceRay(ro, rd) {
+  let bestT = Infinity, bestB = null, bestI = -1, bestPart = '', bestJoint = 0;
+  coarseLast = 0; boxTestsLast = 0;
+  for (const b of batches) {
+    for (let i = 0; i < b.n; i++) {
+      const st = b.states[i];
+      if (st.dead > 0) continue;                    // 倒地不再参与命中
+      coarseSphereWorld(b.baked, st, _cs);
+      const tc = raySphere(ro, rd, _cs.x, _cs.y, _cs.z, _cs.r);
+      if (tc < 0 || tc >= bestT) continue;          // 粗筛：总球不进/必更远即跳
+      coarseLast++;
+      rowReader.set(b.jointData, i, MAX_JOINTS);
+      if (raycastWorld(b.baked, rowReader, st, ro, rd, _hit)) {
+        boxTestsLast += b.baked.hitboxes.length;
+        if (_hit.t < bestT) { bestT = _hit.t; bestB = b; bestI = i; bestPart = _hit.part; bestJoint = _hit.joint; }
+      }
+    }
+  }
+  return bestB ? { b: bestB, i: bestI, part: bestPart, joint: bestJoint, t: bestT } : null;
+}
+
+function hitscan() {
+  camera.getWorldPosition(_rayO);
+  camera.getWorldDirection(_rayD);
+  return traceRay(_rayO, _rayD);
+}
+
+function raySphere(o, d, cx, cy, cz, r) {
+  const ox = o.x - cx, oy = o.y - cy, oz = o.z - cz;
+  const bq = ox * d.x + oy * d.y + oz * d.z;
+  const c = ox * ox + oy * oy + oz * oz - r * r;
+  const disc = bq * bq - c;
+  if (disc < 0) return -1;
+  const t = -bq - Math.sqrt(disc);
+  return t > 0.05 ? t : -1;
+}
+
+/**
+ * 死亡入口：断肢结算（爆头 = 断头飞出）→ 血/血渍 → 布娃娃（人形且池不满）
+ * 否则回退倾倒+沉入。dir = 枪口射线方向（布娃娃冲量 + 断头飞出方向）。
+ */
+function startDeath(b, i, head, dx, dy, dz, allowRag) {
+  const st = b.states[i];
+  st.dead = 0.0001;
+  st.fallDir = random() < 0.5 ? 1 : -1;
+  stats.kills++;
+  if (head) severLimb(b, i, J.NECK, dx, dy, dz);     // 爆头致死 = 断头飞出
+  bloodBurst(st.x, 1.0 * st.scale, st.z, 12, 1.6, 2.2);
+  decalDrop(st.x, st.z, (b.spec.radius || 0.45) * st.scale * 1.6);
+  st.ragSlot = -1;
+  // 布娃娃：爬行者/多足种关节语义不同（gait.crawl / gait.kind），回退现有倒地；
+  // 池满（32）也回退。titan 是标准人形 rig，正常进布娃娃
+  if (allowRag !== false && !b.spec.gait.crawl && !b.spec.gait.kind) {
+    st.ragSlot = ragPool.start(b, i, dx, dy, dz, head ? 4.2 : 2.4);
+  }
+}
+
+/** 场边重生（离玩家 ≥18m），复位战斗/断肢/布娃娃/攻击受击全部状态。 */
+function respawn(b, i) {
+  const st = b.states[i];
+  st.dead = 0; st.hp = HP[b.id]; st.ox = st.oz = 0;
+  st.severMask = 0; st.params.severMask = 0; st.params.crawl = false;
+  st.limbHits.armL = st.limbHits.armR = st.limbHits.legL = st.limbHits.legR = 0;
+  st.speed = st.params.speed = st.baseSpeed;
+  st.params.atkT = -1; st.params.stgT = -1; st.params.hitK0 = 0;
+  st.atkCd = random() * 1.5; st.blowDone = false; st.atkFrozen = false;
+  const a = random() * TAU;
+  st.x = Math.cos(a) * FIELD_R * 0.9; st.z = Math.sin(a) * FIELD_R * 0.9;
+  if (Math.hypot(st.x - player.x, st.z - player.z) < 18) { st.x = -st.x; st.z = -st.z; }
+  st.heading = random() * TAU;
+  st.params.flash = 0;
+}
+
+function fire() {
+  stats.shots++;
+  vm.kick(0.045); vm.flash();
+  const hit = hitscan();
+  if (!hit) return;
+  const { b, i, part, joint, t } = hit;
+  const st = b.states[i];
+  stats.hits++;
+  stats.parts[part] = (stats.parts[part] || 0) + 1;
+  const head = part === 'head';
+  const limb = part === 'arm' || part === 'leg';
+  const dmg = BODY_DMG * (PART_MULT[part] ?? 1);
+  st.hp -= dmg;
+  stats.dmgWin[stats.dmgI] = dmg; stats.dmgT[stats.dmgI] = performance.now();
+  stats.dmgI = (stats.dmgI + 1) & 127;
+  if (head) stats.headshots++;
+
+  // 红闪：躯干 1.0 / 四肢 0.55（弱一档）/ 爆头 2.0（着色器 >1 段更亮）
+  st.params.flash = head ? 2.0 : limb ? 0.55 : 1.0;
+  // 廉价击退：沿射线瞬时位移，帧循环里指数衰减
+  const kb = head ? 0.5 : 0.3;
+  st.ox += _rayD.x * kb; st.oz += _rayD.z * kb;
+
+  // 血在真实命中点（射线参数 t 直取）
+  const hx = _rayO.x + _rayD.x * t, hy = _rayO.y + _rayD.y * t, hz = _rayO.z + _rayD.z * t;
+  bloodBurst(hx, hy, hz, head ? 16 : 8, 1.2, 1.6);
+
+  // 受击趔趄 + 落点抽动（gait.js triggerStagger：方向/落点换算进怪本地系，
+  // 公式同 mummy.js registerHit——本地 = Ry(-yaw) 作用于世界向量）
+  {
+    const th = st.heading, c = Math.cos(th), sn = Math.sin(th);
+    const sHit = c * _rayD.x - sn * _rayD.z;
+    const fHit = sn * _rayD.x + c * _rayD.z;
+    const lx = Math.max(-1, Math.min(1,
+      (c * (hx - st.x) - sn * (hz - st.z)) / (st.scale * 0.3)));
+    const ly = Math.max(0, Math.min(1, (hy / st.scale) / (b.spec.height || 1.8)));
+    triggerStagger(st.params,
+      { lx, ly, f: fHit, s: sHit, head, k: head ? 1 : 0.8 });
+  }
+
+  if (st.hp <= 0) {
+    startDeath(b, i, head, _rayD.x, _rayD.y, _rayD.z, true);
+  } else if (limb) {
+    // 断肢触发：四肢累计受击 SEVER_HITS 次断；断点 = 中弹关节缝，已断则升级近端
+    const lk = LIMB_OF_JOINT[joint];
+    st.limbHits[lk]++;
+    if (st.limbHits[lk] >= SEVER_HITS) {
+      let sj = joint;
+      if (st.severMask & (1 << sj)) sj = PROXIMAL[sj];
+      if (sj !== undefined && !(st.severMask & (1 << sj))) {
+        severLimb(b, i, sj, _rayD.x, _rayD.y, _rayD.z);
+      }
+    }
+  }
+}
+
+// --- 测试钩子 ---------------------------------------------------------------------
+function aimAtPoint(tx, ty, tz) {
+  const dx = tx - player.x, dy = ty - player.eye, dz = tz - player.z;
+  player.yaw = Math.atan2(-dx, -dz);
+  player.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+  applyCam();
+  camera.updateMatrixWorld(true);
+}
+window.__shooter = {
+  ready: false,
+  lod: LOD_ON, cull: CULL,
+  // LOD 探针：本帧各档实例数 + 实际写纹理行数（验收计数器，非 fps）
+  lodStats() {
+    const s = gater.stats;
+    return { tiers: s.tiers.slice(), rows: s.rows, total: s.total };
+  },
+  // part: 'head' | 'body'(=torso) | 'hips' | 'arm' | 'leg'——瞄该部位盒心开火
+  shootAt(batchIdx, instIdx, part) {
+    const b = batches[batchIdx];
+    if (!b || !b.states[instIdx] || b.states[instIdx].dead > 0) return false;
+    rowReader.set(b.jointData, instIdx, MAX_JOINTS);
+    const p = part === 'body' ? 'torso' : part;
+    if (!hitboxCenterWorld(b.baked, rowReader, b.states[instIdx], p, _aimV)) return false;
+    aimAtPoint(_aimV.x, _aimV.y, _aimV.z);
+    fire();
+    return true;
+  },
+  // 探针：纯查询不击发——世界射线 vs 全体存活实例，返回最近命中或 null
+  raycast(ox, oy, oz, dx, dy, dz) {
+    _proO.set(ox, oy, oz); _proD.set(dx, dy, dz).normalize();
+    const res = traceRay(_proO, _proD);
+    return res ? { t: res.t, part: res.part, batch: batches.indexOf(res.b), inst: res.i } : null;
+  },
+  // 探针：部位盒心世界坐标 / 实例位姿（负例取点用）
+  partCenter(batchIdx, instIdx, part) {
+    const b = batches[batchIdx];
+    if (!b || !b.states[instIdx]) return null;
+    rowReader.set(b.jointData, instIdx, MAX_JOINTS);
+    const p = part === 'body' ? 'torso' : part;
+    if (!hitboxCenterWorld(b.baked, rowReader, b.states[instIdx], p, _aimV)) return null;
+    return [_aimV.x, _aimV.y, _aimV.z];
+  },
+  instInfo(batchIdx, instIdx) {
+    const st = batches[batchIdx] && batches[batchIdx].states[instIdx];
+    return st ? { x: st.x, z: st.z, heading: st.heading, scale: st.scale, dead: st.dead,
+      severMask: st.severMask, ragSlot: st.ragSlot, crawl: !!st.params.crawl,
+      speed: st.speed } : null;
+  },
+  // 探针：出厂参数快照（init 是创建时刻副本，不受运行推进影响）
+  snapshot() {
+    return batches.map(b => ({ id: b.id, n: b.n,
+      states: b.states.map(st => ({ ...st.init })) }));
+  },
+  // 探针：该物种某部位盒的半边长（bind 局部，恒定）
+  boxHalf(batchIdx, part) {
+    const b = batches[batchIdx]; if (!b) return null;
+    const hb = b.baked.hitboxes.find(h => h.part === (part === 'body' ? 'torso' : part));
+    return hb ? hb.max.map((v, k) => (v - hb.min[k]) / 2) : null;
+  },
+  // 探针：旧躯干球公式（负例对照——证明取样点旧方案会误判命中）；人形限定
+  legacySphere(batchIdx) {
+    const b = batches[batchIdx]; if (!b) return null;
+    const P = b.spec.proportions;
+    if (!P.hipY) return null;
+    return { cy: (P.hipY + P.torsoY + P.chestH * 0.5) * 0.95, r: Math.max(P.chestW, P.chestH * 0.8) * 0.5 * 1.15 };
+  },
+  // 断肢钩子：定向断指定关节缝（'neck'/'shoulderL'/'elbowL'/'hipL'/'kneeL' 等）
+  severAt(batchIdx, instIdx, jointName) {
+    const b = batches[batchIdx];
+    const st = b && b.states[instIdx];
+    if (!st || st.dead > 0) return false;
+    const j = SEVER_NAMES[jointName];
+    if (j === undefined) return false;
+    const a = random() * TAU;   // 无弹道方向，给随机水平飞出方向
+    return severLimb(b, instIdx, j, Math.cos(a), 0.3, Math.sin(a));
+  },
+  // 死亡钩子：killWith(batch, inst, { headshot, ragdoll, dir:[x,y,z] })
+  killWith(batchIdx, instIdx, opts) {
+    const b = batches[batchIdx];
+    const st = b && b.states[instIdx];
+    if (!st || st.dead > 0) return false;
+    const o = opts || {};
+    let d = o.dir;
+    if (!d) {                        // 默认：玩家→目标水平方向（模拟枪口冲量）
+      const dx = st.x - player.x, dz = st.z - player.z;
+      const l = Math.hypot(dx, dz) || 1;
+      d = [dx / l, 0, dz / l];
+    }
+    st.hp = 0;
+    startDeath(b, instIdx, !!o.headshot, d[0], d[1] || 0, d[2], o.ragdoll !== false);
+    return true;
+  },
+  // 探针：断肢掩码断言——状态位 vs 关节纹理读回（gait/ragdoll 写进列 0.z 的那份）
+  severMaskOf(batchIdx, instIdx) {
+    const b = batches[batchIdx];
+    const st = b && b.states[instIdx];
+    if (!st) return null;
+    return { mask: st.severMask, tex: b.jointData[(instIdx * MAX_JOINTS) * 4 + 2] };
+  },
+  // 探针：布娃娃池状态（活跃/冻结/质点最低 y——地面穿透断言用）
+  ragdollInfo() { return ragPool.info(); },
+  // 探针：断肢池状态
+  debrisInfo() {
+    let active = 0;
+    for (const s of debrisPool) if (s.active) active++;
+    return { max: DEBRIS_MAX, active };
+  },
+  // 攻击/受击探针（_probe_attack.py）：直接起手 / 时码读回 / 关节纹理行 / 摆怪
+  attack(batchIdx, instIdx) {
+    const st = batches[batchIdx] && batches[batchIdx].states[instIdx];
+    return !!(st && st.dead === 0 && triggerAttack(st.params));
+  },
+  atkInfo(batchIdx, instIdx) {
+    const b = batches[batchIdx];
+    const st = b && b.states[instIdx];
+    if (!st) return null;
+    return { atkT: st.params.atkT, stgT: st.params.stgT,
+      wuDur: b.spec.windup ?? 0.52, stDur: b.spec.strikeTime ?? 0.42,
+      blowDone: st.blowDone };
+  },
+  // 关节纹理行读回（列 0..11：meta + hips/torso/neck/双腿/双臂四元数）
+  jointRow(batchIdx, instIdx) {
+    const b = batches[batchIdx];
+    if (!b || !b.states[instIdx]) return null;
+    const o = instIdx * MAX_JOINTS * 4;
+    return Array.from(b.jointData.slice(o, o + 12 * 4));
+  },
+  teleport(batchIdx, instIdx, x, z) {
+    const st = batches[batchIdx] && batches[batchIdx].states[instIdx];
+    if (!st || st.dead > 0) return false;
+    st.x = x; st.z = z;
+    return true;
+  },
+  setAutoFire(n) { autoFire.n += n; },
+  state() {
+    let alive = 0;
+    for (const b of batches) for (const st of b.states) if (st.dead === 0) alive++;
+    let debrisActive = 0;
+    for (const s of debrisPool) if (s.active) debrisActive++;
+    return {
+      fps, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
+      alive, total: TOTAL, shots: stats.shots, hits: stats.hits,
+      headshots: stats.headshots, kills: stats.kills, parts: { ...stats.parts },
+      severCount: stats.severCount, ragdollActive: ragPool.activeCount, debrisActive,
+      coarseLast, boxTestsLast,                  // 上一枪：粗筛通过实例数 / 精筛盒测试数
+      particles: pActive, batches: Object.fromEntries(batches.map(b => [b.id, b.n])),
+      px: player.x, pz: player.z, vx: player.vx, vz: player.vz,   // 移动手感探针用
+    };
+  },
+  aimAtPoint,
+  // 探针：传送玩家（布娃娃/断肢特写构图用；eye 可抬高视点俯视，缺省 1.6）
+  setPlayer(x, z, eye) { player.x = x; player.z = z; player.vx = player.vz = 0; player.eye = eye || 1.6; applyCam(); },
+  _keys: keys,   // 探针用：直接拨按键状态做逐帧移动采样
+};
+const autoFire = { n: 0, t: 0 };
+const hurtEl = document.getElementById('hurt');
+let hurtT = 0;   // 被打红闪包络（纯视觉）
+
+// --- 主循环 -------------------------------------------------------------------------
+const clock = new THREE.Clock();
+const m4 = new THREE.Matrix4();
+const quat = new THREE.Quaternion(), qTop = new THREE.Quaternion();
+const posV = new THREE.Vector3(), sclV = new THREE.Vector3();
+const YAXIS = new THREE.Vector3(0, 1, 0), XAXIS = new THREE.Vector3(1, 0, 0);
+let frames = 0, tFps = 0, fps = 0, cullTimer = 0;
+
+// 平地版移动核心：指数阻尼趋近目标速度（起步加速/松急停滑行，帧率无关），
+// Shift 冲刺；相机装配带速度加权 bob + 冲刺 FOV +4。
+// 砍掉的：跳跃/重力/蹲趴/体力/碰撞（本页是纯平面，用不上）。
+function movePlayer(dt) {
+  const fwd = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+  const str = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  player.sprinting = !!(keys.ShiftLeft && fwd > 0);
+  const speed = player.sprinting ? 6.4 : 4.3;
+  const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
+  let mx = (-sy * fwd + cy * str), mz = (-cy * fwd - sy * str);
+  const ml = Math.hypot(mx, mz);
+  if (ml > 0.01) { mx /= ml; mz /= ml; }
+  player.vx = dampF(player.vx, mx * speed, 12, dt);
+  player.vz = dampF(player.vz, mz * speed, 12, dt);
+  player.x += player.vx * dt;
+  player.z += player.vz * dt;
+  const r = Math.hypot(player.x, player.z);
+  const maxR = FIELD_R + 10;
+  if (r > maxR) { player.x *= maxR / r; player.z *= maxR / r; }
+
+  // 速度加权头部 bob + roll（幅度随实际速度，不是按键状态）
+  const sp2 = Math.hypot(player.vx, player.vz);
+  if (sp2 > 0.5) camBobT += dt * (player.sprinting ? 11 : 7.4)
+    * Math.min(1.5, Math.max(0.4, sp2 / 4.2));
+  const bobA = Math.min(1, sp2 / 4.2);
+  camera.position.set(
+    player.x + Math.cos(camBobT) * 0.011 * bobA * cy,
+    player.eye + Math.sin(camBobT * 2) * 0.021 * bobA,
+    player.z + Math.cos(camBobT) * 0.011 * bobA * -sy);
+  camera.rotation.set(player.pitch, player.yaw, Math.sin(camBobT) * 0.006 * bobA);
+
+  // 冲刺 FOV 反馈
+  const tgtFov = 66 + (player.sprinting && sp2 > 3 ? 4 : 0);
+  if (Math.abs(camera.fov - tgtFov) > 0.01) {
+    camera.fov = dampF(camera.fov, tgtFov, 16, dt);
+    camera.updateProjectionMatrix();
+  }
+}
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  movePlayer(dt);
+
+  // 开火：按住连发 8/s；autoFire 钩子按 5.5/s 打随机目标
+  fireCooldown -= dt;
+  if (firing && fireCooldown <= 0) { fireCooldown = 0.125; fire(); }
+  autoFire.t -= dt;
+  if (autoFire.n > 0 && autoFire.t <= 0) {
+    autoFire.t = 0.18; autoFire.n--;
+    const b = batches[(random() * batches.length) | 0];
+    const i = (random() * b.n) | 0;
+    window.__shooter.shootAt(batches.indexOf(b), i, random() < 0.3 ? 'head' : 'body');
+  }
+
+  // 距离分级动画更新（lod.js）：本帧计数清零 + 格子重分配 0.5s 一次
+  gater.beginFrame();
+  cullTimer -= dt;
+  if (cullTimer <= 0) { cullTimer = 0.5; cullReassign(); }
+
+  for (const b of batches) {
+    let rows = 0;
+    for (let i = 0; i < b.n; i++) {
+      const st = b.states[i];
+      st.params.flash = Math.max(0, st.params.flash - dt * 2.5);
+      // 击退位移指数衰减（零分配的廉价受击感）
+      st.ox *= Math.max(0, 1 - dt * 9); st.oz *= Math.max(0, 1 - dt * 9);
+
+      if (st.dead > 0) {
+        st.dead += dt;
+        if (st.ragSlot >= 0) {
+          // 布娃娃死亡：关节行由 ragPool.update 回写（冻结后停写），这里只排
+          // 实例矩阵（位置跟随髋质点，池内 writeBack 已更新 st.x/st.z）+
+          // 冻结后停留 ~8s → 沉入 1s → 重生
+          const slot = ragPool.slots[st.ragSlot];
+          const fz = slot.freezeAge >= 0 ? slot.freezeAge : 7;   // 未冻结兜底
+          let y = 0;
+          if (st.dead > fz + 8) {
+            const k = Math.min(1, (st.dead - fz - 8) / 1.0);
+            y = -2.0 * st.scale * k;
+          }
+          quat.setFromAxisAngle(YAXIS, st.heading);
+          posV.set(st.x, y, st.z);
+          sclV.setScalar(st.scale);
+          m4.compose(posV, quat, sclV);
+          writeInstMat(b, st);
+          if (st.dead > fz + 9.1) {
+            ragPool.release(st.ragSlot); st.ragSlot = -1;
+            respawn(b, i);
+          }
+          continue;
+        }
+        // 死亡流程（倾倒版）：冻结步态（dt=0 姿态定格不抽搐）→ 倒地 → 沉入 → 重生
+        fillJoints(b.jointData, i, MAX_JOINTS, st.params, b.spec, b.baked.stepSpan, 0);
+        const top = Math.min(1, st.dead / 0.4);
+        const ang = top * 1.5 * st.fallDir;
+        let y = 0, s = st.scale;
+        if (st.dead > 0.4) {
+          const k = Math.min(1, (st.dead - 0.4) / 1.0);
+          y = -1.7 * s * k;
+          s *= 1 - 0.35 * k;
+        }
+        quat.setFromAxisAngle(YAXIS, st.heading);
+        qTop.setFromAxisAngle(XAXIS, ang);
+        quat.multiply(qTop);
+        posV.set(st.x, y, st.z);
+        sclV.setScalar(s);
+        m4.compose(posV, quat, sclV);
+        writeInstMat(b, st);
+        if (st.dead > 1.45) respawn(b, i);   // 场边重生（密度恒定）
+        continue;
+      }
+
+      // 近身攻击循环：距玩家 ≤1.8m 起手（前摇-挥击-回收），节奏按物种
+      // speed 分档；攻击中移动/步态冻结（原版 busy 语义：挥击中不走位）
+      st.atkCd -= dt;
+      const pdx = st.x - player.x, pdz = st.z - player.z;
+      const pd = Math.hypot(pdx, pdz);
+      const prm = st.params;
+      if (pd <= 1.8 && !prm.crawl && st.atkCd <= 0 && triggerAttack(prm)) {
+        st.atkCd = Math.max(0.8, 2.6 - b.spec.speed * 0.5);
+      }
+      if (prm.atkT >= 0 && !st.atkFrozen) {
+        st.atkFrozen = true; st.speedSave = prm.speed;
+        prm.speed = 0; st.speed = 0;
+      } else if (prm.atkT < 0 && st.atkFrozen) {
+        st.atkFrozen = false; prm.speed = st.speedSave; st.speed = st.speedSave;
+      }
+      // 挥击落点时刻（strike 倒数过 0.55，mummy.js 2693 行同阈值）：贴脸红闪
+      if (prm.atkT >= 0) {
+        const wuDur = b.spec.windup ?? 0.52, stDur = b.spec.strikeTime ?? 0.42;
+        if (!st.blowDone && prm.atkT > wuDur + 0.45 * stDur && prm.atkT < wuDur + stDur) {
+          st.blowDone = true;
+          if (pd <= 2.6) hurtT = 1;
+        }
+      } else st.blowDone = false;
+
+      st.x += Math.sin(st.heading) * st.speed * dt;
+      st.z += Math.cos(st.heading) * st.speed * dt;
+      const r = Math.hypot(st.x, st.z);
+      if (r > FIELD_R) {
+        const want = Math.atan2(-st.x, -st.z);
+        const dth = ((want - st.heading + Math.PI * 3) % TAU) - Math.PI;
+        st.heading += Math.sign(dth) * Math.min(Math.abs(dth), 2.2 * dt);
+      }
+
+      // 距离分级门控（lod.js）：攻击/受击/闪白/近身 <15m 强制每帧档；
+      // 死亡路径（上方 continue 掉的两支）不走门控——布娃娃行由 ragPool 直写，
+      // 倾倒版本就 dt=0 定格，都不受 LOD 影响
+      const force = prm.atkT >= 0 || prm.stgT >= 0 || prm.flash > 0 || pd <= 15;
+      if (LOD_ON) {
+        const adv = gater.step(st, i, st.x, 0, st.z,
+          player.x, player.eye, player.z, dt, force);
+        if (adv > 0) {
+          fillJoints(b.jointData, i, MAX_JOINTS, prm, b.spec, b.baked.stepSpan, adv);
+          rows++;
+        }   // adv=0：本帧冻结/未到更新帧，纹理行保持（姿态定格）
+      } else {
+        fillJoints(b.jointData, i, MAX_JOINTS, prm, b.spec, b.baked.stepSpan, dt);
+        rows++;
+      }
+      posV.set(st.x + st.ox, 0, st.z + st.oz);
+      quat.setFromAxisAngle(YAXIS, st.heading);
+      sclV.setScalar(st.scale);
+      m4.compose(posV, quat, sclV);
+      writeInstMat(b, st);
+    }
+    if (rows > 0) b.jointTex.needsUpdate = true;   // 布娃娃回写由 ragPool 自行标 needsUpdate
+    for (const g of b.groups) if (g.meshes && g.list.length) g.mat.needsUpdate = true;
+  }
+
+  ragPool.update(dt);      // 布娃娃求解 + 关节纹理回写（渲染层零改动）
+  updateDebris(dt);        // 断肢飞舞池
+  updateBlood(dt);
+  updateDecals(dt);
+  hurtT = Math.max(0, hurtT - dt * 3.2);   // 被打红闪衰减
+  hurtEl.style.opacity = hurtT.toFixed(3);
+  vm.update(dt, clock.elapsedTime);
+  renderer.render(scene, camera);
+
+  const info = renderer.info.render;
+  frames++; tFps += dt;
+  if (tFps >= 0.5) {
+    fps = Math.round(frames / tFps); frames = 0; tFps = 0;
+    const st = window.__shooter.state();
+    const now = performance.now();
+    let dps = 0;
+    for (let i = 0; i < 128; i++) if (now - stats.dmgT[i] < 3000) dps += stats.dmgWin[i];
+    dps = Math.round(dps / 3);
+    const acc = st.shots ? Math.round(100 * st.hits / st.shots) : 0;
+    const hsr = st.hits ? Math.round(100 * st.headshots / st.hits) : 0;
+    const p = st.parts;
+    statsEl.textContent =
+      `Horde ${TOTAL} · alive ${st.alive} · kills ${st.kills}\n` +
+      `Shots ${st.shots} · hits ${st.hits} (${acc}%) · headshots ${st.headshots} (${hsr}%) · DPS ${dps}\n` +
+      `Parts: head ${p.head || 0} · torso ${(p.torso || 0) + (p.hips || 0)} · limbs ${(p.arm || 0) + (p.leg || 0)}\n` +
+      `Damage: torso ${BODY_DMG} / limbs ×${PART_MULT.arm}=${BODY_DMG * PART_MULT.arm} / head ×${PART_MULT.head}=${BODY_DMG * PART_MULT.head} (zombie/runner/screecher/crawler die to one headshot)\n` +
+      `Dismember: ${SEVER_HITS} limb hits sever (cut at the hit joint) · lethal headshot=decapitation · both legs=crawl · one leg=limp\n` +
+      `Severed ${st.severCount} · ragdolls ${st.ragdollActive}/${RAGDOLL_MAX} · debris ${st.debrisActive}/${DEBRIS_MAX} (frozen corpses sink and respawn after 8s)\n` +
+      `draw calls ${st.calls} · tri ${st.triangles}`;
+    window.__shooter.ready = true;
+  }
+});
+</script>
+</body>
+</html>

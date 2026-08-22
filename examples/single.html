@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procedural-3D — single monster viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;height:100%;background:#101210;color:#ddd8c8;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  #panel{position:fixed;top:10px;left:10px;z-index:2;background:#141812e6;padding:10px 12px;border-radius:6px;max-width:380px}
+  #panel small{color:#9aa088}
+  #stats{margin-top:6px;white-space:pre;color:#bcc4a8}
+  button{background:#1c2416;color:#ddd8c8;border:1px solid #3e4a34;border-radius:4px;padding:3px 9px;cursor:pointer;margin:2px 2px 2px 0}
+  button.on{background:#4a5c28;border-color:#a2c94a}
+  #hint{position:fixed;right:10px;top:8px;color:#9aa088;font-size:12px;text-align:right;z-index:2}
+  #fps{color:#7fd98f}
+  #err{position:fixed;left:10px;bottom:10px;color:#ff7a6a;white-space:pre;z-index:3;font:12px monospace}
+</style>
+</head>
+<body>
+<div id="panel">
+  <b>Procedural monsters — single viewer</b><br>
+  <small>spec-driven: src/core/ generic machine (sands-of-the-restless, verbatim) + src/species/ data tables</small>
+  <div style="margin:6px 0">
+    Species
+    <button data-species="zombie">zombie</button><button data-species="bloater">bloater</button><button data-species="runner">runner</button><button data-species="brute">brute</button><button data-species="screecher">screecher</button><button data-species="crawler">crawler</button><button data-species="maggot">maggot</button><button data-species="tickbot">tickbot</button><button data-species="spiderbot">spiderbot</button><button data-species="centaurbot">centaurbot</button><button data-species="titan">titan</button>
+  </div>
+  <div style="margin:6px 0">
+    <label><input type="checkbox" id="showVol"> Show hit volumes</label>
+    <small>red=head green=torso/hips blue=limbs (part boxes from src/hitvol.js, the shooter hit-test source) yellow dot=true animated head position</small>
+    <span id="volInfo"></span>
+  </div>
+  <div style="margin:6px 0">
+    Actions
+    <button id="btnAtk">Attack (J)</button><button id="btnStg">Stagger (K)</button>
+    <small>windup→strike→recover / stagger + hit twitch, repeatable</small>
+  </div>
+  <div id="stats">Building…</div>
+</div>
+<div id="hint">Drag to orbit / wheel to zoom<br><span id="fps"></span></div>
+<div id="err"></div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module">import { initNav } from './nav.js'; initNav('single');</script>
+<script type="module">
+import * as THREE from 'three';
+import { strideRate } from '../src/core/mummy.js';
+import { SPECIES } from '../src/species/index.js';
+import { bakeMummy, J } from '../src/bake.js';
+import { makeActionState, triggerAttack, triggerStagger, advanceActions } from '../src/gait.js';
+import { beginFk, fkBoxMatrix } from '../src/hitvol.js';
+
+addEventListener('error', e => { document.getElementById('err').textContent = 'ERR: ' + e.message; });
+addEventListener('unhandledrejection', e => { document.getElementById('err').textContent = 'ERR: ' + (e.reason && e.reason.message || e.reason); });
+
+// 物种注册表在 ../src/species/index.js（与 lineup.html 共用，新物种一处注册）
+const q = new URLSearchParams(location.search);
+const species = SPECIES[q.get('species')] ? q.get('species') : 'zombie';
+const SPEC = SPECIES[species].spec;
+const FACTORY = SPECIES[species].factory;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101210);
+
+// 程序化渐变环境
+{
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 32);
+  grad.addColorStop(0, '#9fb8d0'); grad.addColorStop(0.5, '#5c6152'); grad.addColorStop(1, '#1c1a14');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  scene.environment = tex;
+}
+scene.add(new THREE.HemisphereLight(0xfff2dd, 0x2e3226, 1.1));
+const sun = new THREE.DirectionalLight(0xffe8c0, 2.2); sun.position.set(3, 6, 4); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x88a0c0, 0.6); fill.position.set(-4, 3, -3); scene.add(fill);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 100);
+
+// --- 单只怪原地走 -------------------------------------------------------------
+const actor = FACTORY(SPEC, 0);
+const rig = actor.rig;
+const initPhase = actor.st.phase;   // 出厂相位（探针快照用；主循环会推进 st.phase）
+rig.group.scale.setScalar(actor.scale);
+scene.add(rig.group);
+const animState = {
+  phase: actor.st.phase, speed: 0, windup: 0, strike: 0,
+  stagger: 0, staggerRoll: 0, staggerPitch: 0,
+  hit: 0, hitLX: 0, hitLY: 0.55, hitF: 0, hitS: 0, hitHead: 0,
+};
+// 攻击/受击动作状态（gait.js 契约：atkT/stgT 时码 + 落点字段）——
+// 按钮/快捷键/探针触发，主循环 advanceActions 推进后填进 animState。
+// 人形物种由 core MUMMY.animate 原生消费这些字段（一行未改），
+// crawler/spiderbot/centaurbot 的 animateXxx 读同一组字段（复算层同款公式）。
+const actState = makeActionState();
+let lastAct = { wu: 0, stk: 0, stg: 0, hk: 0, roll: 0, pitch: 0 };
+function doAttack() { triggerAttack(actState); }
+function doStagger() { triggerStagger(actState, { f: -1, ly: 0.55, k: 0.9 }); }
+document.getElementById('btnAtk').onclick = doAttack;
+document.getElementById('btnStg').onclick = doStagger;
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyJ') doAttack();
+  else if (e.code === 'KeyK') doStagger();
+});
+
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(6, 6, 0.1, 48),
+  new THREE.MeshStandardMaterial({ color: 0x555c48, roughness: 1 }));
+ground.position.y = -0.05;
+scene.add(ground);
+scene.add(new THREE.GridHelper(12, 24, 0x3c4434, 0x232a1e));
+
+// --- 碰撞体可视化（hitvol.js 部件盒 = shooter 判定真源；黄点 = 动画真实头位） ----
+// 盒数据随烘焙产出（bind 模型空间 Box3 + 叶关节 id）；每帧走「姿态 FK」路径
+// （beginFk/fkBoxMatrix，与 shooter 判定同一条公式链）贴到动画姿态上——
+// 黄点走 rig.neck.localToWorld 真值，两者逐帧重合即证明 FK 正确
+const baked = bakeMummy(FACTORY, SPEC);
+const hitboxes = baked.hitboxes;
+const PART_COLOR = { head: 0xe84028, torso: 0x3fd05a, hips: 0x3fd05a, arm: 0x3a86ff, leg: 0x3a86ff };
+const volGroup = new THREE.Group();
+volGroup.visible = false;
+const boxLines = [];
+for (const hb of hitboxes) {
+  const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(
+    hb.max[0] - hb.min[0], hb.max[1] - hb.min[1], hb.max[2] - hb.min[2]));
+  geo.translate((hb.min[0] + hb.max[0]) / 2, (hb.min[1] + hb.max[1]) / 2, (hb.min[2] + hb.max[2]) / 2);
+  const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+    color: PART_COLOR[hb.part] || 0x3fd05a, depthTest: false, transparent: true, opacity: 0.9 }));
+  line.renderOrder = 999;          // 穿透显示：调试要的是「盒 vs 几何」的相对关系
+  line.matrixAutoUpdate = false;   // 每帧由 FK 矩阵直写
+  line.frustumCulled = false;
+  boxLines.push({ hb, line });
+  volGroup.add(line);
+}
+const headMark = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8),
+  new THREE.MeshBasicMaterial({ color: 0xffd83a, depthTest: false }));
+headMark.renderOrder = 1000;
+headMark.visible = false;
+rig.group.add(volGroup);           // rig.group 带 actor.scale，盒矩阵是模型空间
+scene.add(headMark);
+const headHb = hitboxes.find(h => h.part === 'head');
+const _boxM = new THREE.Matrix4();
+const _hvV = new THREE.Vector3(), _hvV2 = new THREE.Vector3();
+const _headHD = Math.hypot(       // 头盒半对角：黄点在盒内 ⇒ 错位 ≤ 此值
+  headHb.max[0] - headHb.min[0], headHb.max[1] - headHb.min[1], headHb.max[2] - headHb.min[2]) / 2;
+// rig 关节读取器（hitvol.js quatAt 契约；与 gait.js 填纹理的是同一组关节角）
+// 无四肢物种（maggot legs/arms 空数组）按存在性注册，同 bake.js 的守卫
+const rigJoints = {
+  [J.HIPS]: rig.hips, [J.TORSO]: rig.torso, [J.NECK]: rig.neck,
+};
+if (rig.legs[0]) { rigJoints[J.HIP_L] = rig.legs[0].hip; rigJoints[J.KNEE_L] = rig.legs[0].knee; }
+if (rig.legs[1]) { rigJoints[J.HIP_R] = rig.legs[1].hip; rigJoints[J.KNEE_R] = rig.legs[1].knee; }
+if (rig.arms[0]) { rigJoints[J.SH_L] = rig.arms[0].shoulder; rigJoints[J.EL_L] = rig.arms[0].elbow; }
+if (rig.arms[1]) { rigJoints[J.SH_R] = rig.arms[1].shoulder; rigJoints[J.EL_R] = rig.arms[1].elbow; }
+// 多肢体扩展位（机器人物种：第二/三对腿、第二对手臂；rig 没有就不注册）
+if (rig.legs[2]) { rigJoints[J.LEG2_L] = rig.legs[2].hip; rigJoints[J.KNEE2_L] = rig.legs[2].knee; }
+if (rig.legs[3]) { rigJoints[J.LEG2_R] = rig.legs[3].hip; rigJoints[J.KNEE2_R] = rig.legs[3].knee; }
+if (rig.legs[4]) { rigJoints[J.LEG3_L] = rig.legs[4].hip; rigJoints[J.KNEE3_L] = rig.legs[4].knee; }
+if (rig.legs[5]) { rigJoints[J.LEG3_R] = rig.legs[5].hip; rigJoints[J.KNEE3_R] = rig.legs[5].knee; }
+if (rig.arms[2]) { rigJoints[J.ARM2_L] = rig.arms[2].shoulder; rigJoints[J.EL2_L] = rig.arms[2].elbow; }
+if (rig.arms[3]) { rigJoints[J.ARM2_R] = rig.arms[3].shoulder; rigJoints[J.EL2_R] = rig.arms[3].elbow; }
+const rigReader = { bob: 0, at(j, q) { q.setFromEuler(rigJoints[j].rotation); } };
+// 探针用：烘焙产物摘要（关节数/碰撞盒数/断肢键/材质分组）
+window.__pmtkBaked = {
+  joints: baked.jointCount, hitboxes: baked.hitboxes.length,
+  debris: Object.keys(baked.debris).map(Number), parts: baked.parts.length,
+};
+document.getElementById('volInfo').textContent =
+  ` ${hitboxes.length} hit boxes (head/torso/hips/arms×2/legs×2)`;
+document.getElementById('showVol').addEventListener('change', (e) => {
+  volGroup.visible = headMark.visible = e.target.checked;
+});
+if (q.get('vol')) {   // ?vol=1 默认开（探针/直链用）
+  document.getElementById('showVol').checked = true;
+  volGroup.visible = headMark.visible = true;
+}
+
+// --- 简易轨道 ---------------------------------------------------------------
+const orbit = { yaw: +(q.get('yaw') ?? 0.15), pitch: +(q.get('pitch') ?? 0.14), dist: +(q.get('dist') ?? 4.5), tx: 0, ty: +(q.get('ty') ?? 1.0) };
+function applyOrbit() {
+  const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
+  camera.position.set(
+    orbit.tx + orbit.dist * cp * Math.sin(orbit.yaw),
+    orbit.ty + orbit.dist * sp,
+    orbit.dist * cp * Math.cos(orbit.yaw));
+  camera.lookAt(orbit.tx, orbit.ty, 0);
+}
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+});
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; renderer.domElement.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!drag) return;
+  orbit.yaw -= (e.clientX - drag.x) * 0.006;
+  orbit.pitch = Math.max(-1.2, Math.min(1.4, orbit.pitch + (e.clientY - drag.y) * 0.005));
+  drag = { x: e.clientX, y: e.clientY };
+  applyOrbit();
+});
+addEventListener('pointerup', () => drag = null);
+renderer.domElement.addEventListener('wheel', e => {
+  orbit.dist = Math.max(1.5, Math.min(30, orbit.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+  applyOrbit();
+}, { passive: true });
+applyOrbit();
+
+// --- UI -----------------------------------------------------------------------
+for (const b of document.querySelectorAll('button[data-species]')) {
+  b.classList.toggle('on', b.dataset.species === species);
+  b.onclick = () => {
+    if (b.dataset.species === species) return;
+    q.set('species', b.dataset.species);
+    location.search = q.toString();
+  };
+}
+
+// --- 主循环 ---------------------------------------------------------------------
+window.__pmtk = { species, ready: false, fps: 0, calls: 0, triangles: 0 };
+// 探针：动作触发 + 时码读回（_probe_attack.py 用）
+window.__pmtk.attack = doAttack;
+window.__pmtk.stagger = doStagger;
+window.__pmtk.actState = () => ({
+  atkT: actState.atkT, stgT: actState.stgT,
+  windup: lastAct.wu, strike: lastAct.stk, stagger: lastAct.stg, hit: lastAct.hk,
+  // 姿态读数：肩/躯干/头关节欧拉角（断言攻击姿态 ≠ 行走姿态用）
+  shR: rig.arms[1] ? rig.arms[1].shoulder.rotation.x : 0,
+  torsoX: rig.torso.rotation.x, neckX: rig.neck.rotation.x,
+  bodyY: rig.body.position.y,
+});
+// 探针：出厂参数快照（确定性验收——同 ?seed= 两次加载应逐比特一致）
+window.__pmtk.snapshot = () => ({
+  species, scale: actor.scale, phase: initPhase, triangles: actor.triangles,
+  colors: Object.fromEntries(Object.entries(actor.materials)
+    .filter(([, m]) => m.color).map(([k, m]) => [k, m.color.getHex()])),
+});
+const clock = new THREE.Clock();
+let frames = 0, tFps = 0, reported = false;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const speed = SPEC.speed;
+  actor.st.phase += dt * strideRate(SPEC, rig, speed);
+  animState.phase = actor.st.phase;
+  // 攻击/受击时码推进（gait.js advanceActions：与怪海复算侧同一条时序）；
+  // 攻击期间速度归零（原版 busy 语义：挥击中不走位），animState.speed=0
+  // 让 drive=0、双腿收进站姿。
+  lastAct = advanceActions(actState, SPEC, dt);
+  animState.speed = actState.atkT >= 0 ? 0 : speed;
+  animState.windup = lastAct.wu;
+  animState.strike = lastAct.stk;
+  animState.stagger = lastAct.stg;
+  animState.staggerRoll = lastAct.roll;
+  animState.staggerPitch = lastAct.pitch;
+  animState.hit = lastAct.hk;
+  animState.hitLX = actState.hitLX; animState.hitLY = actState.hitLY;
+  animState.hitF = actState.stgF; animState.hitS = actState.stgS;
+  animState.hitHead = actState.hitHead;
+  SPEC.animate(rig, SPEC, animState);
+  // 碰撞体跟随：每部件盒写 FK 矩阵（模型空间；volGroup 挂 rig.group 吃 scale）
+  if (volGroup.visible) {
+    rigReader.bob = rig.body.position.y;
+    beginFk();
+    for (const { hb, line } of boxLines) {
+      fkBoxMatrix(baked, rigReader, hb.joint, line.matrix);
+      line.matrixWorldNeedsUpdate = true;   // matrixAutoUpdate=false 时要手动置脏
+    }
+    // 黄点：动画姿态下真实头中心（neck 关节 localToWorld，含低头/仰头偏移）
+    rig.neck.localToWorld(_hvV.set(0, SPEC.proportions.headH * 0.5, 0));
+    headMark.position.copy(_hvV);
+    // 探针读数：头盒心（FK）vs 黄点错位（世界系），headR = 头盒半对角
+    fkBoxMatrix(baked, rigReader, headHb.joint, _boxM);
+    _hvV2.set(
+      (headHb.min[0] + headHb.max[0]) / 2,
+      (headHb.min[1] + headHb.max[1]) / 2,
+      (headHb.min[2] + headHb.max[2]) / 2).applyMatrix4(_boxM).multiplyScalar(actor.scale);
+    if (window.__pmtk) {
+      window.__pmtk.volDelta = Math.hypot(_hvV2.x - _hvV.x, _hvV2.y - _hvV.y, _hvV2.z - _hvV.z);
+      window.__pmtk.headR = _headHD * actor.scale;
+    }
+  }
+  renderer.render(scene, camera);
+  const info = renderer.info.render;
+  if (!reported) {
+    reported = true;
+    document.getElementById('stats').textContent =
+      `${species} · ${actor.triangles} tri`;
+    Object.assign(window.__pmtk, { calls: info.calls, triangles: info.triangles });
+  }
+  frames++; tFps += dt;
+  if (tFps >= 1) {
+    const fps = Math.round(frames / tFps);
+    document.getElementById('fps').textContent = `${fps} fps · draw calls ${info.calls} · tri ${info.triangles}`;
+    Object.assign(window.__pmtk, { fps, calls: info.calls, triangles: info.triangles, ready: true });
+    frames = 0; tFps = 0;
+  }
+});
+</script>
+</body>
+</html>

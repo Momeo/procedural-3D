@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procedural-3D — horde instancing demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;height:100%;background:#14100c;color:#e8e0d0;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  #panel{position:fixed;top:10px;left:10px;z-index:2;background:#1c1712e6;padding:10px 12px;border-radius:6px;max-width:380px}
+  #panel small{color:#a89880}
+  #stats{margin-top:6px;white-space:pre;color:#c9bca4}
+  button{background:#241d14;color:#e8e0d0;border:1px solid #4a3f30;border-radius:4px;padding:3px 9px;cursor:pointer;margin:2px 2px 2px 0}
+  button.on{background:#5c4a28;border-color:#c9a24a}
+  #hint{position:fixed;right:10px;top:8px;color:#a89880;font-size:12px;text-align:right;z-index:2}
+  #fps{color:#7fd98f}
+  #err{position:fixed;left:10px;bottom:10px;color:#ff7a6a;white-space:pre;z-index:3;font:12px monospace}
+</style>
+</head>
+<body>
+<div id="panel">
+  <b>Horde — baked single geometry + InstancedMesh</b><br>
+  <small>Default "all mix" of 10 species; series mixes (zombie/robot hordes) or 11 single-species picks — one bake + joint texture per species</small>
+  <div style="margin:6px 0">
+    Mix
+    <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button>
+    <br><small>Zombie</small>
+    <button data-species="zombie">zombie</button><button data-species="bloater">bloater</button><button data-species="runner">runner</button><button data-species="brute">brute</button><button data-species="screecher">screecher</button><button data-species="crawler">crawler</button><button data-species="maggot">maggot</button>
+    <br><small>Robot</small>
+    <button data-species="tickbot">tickbot</button><button data-species="spiderbot">spiderbot</button><button data-species="centaurbot">centaurbot</button><button data-species="titan">titan</button>
+  </div>
+  <div style="margin:6px 0">
+    Mode
+    <button data-mode="instanced" class="on">instanced</button><button data-mode="naive">naive (reference)</button>
+  </div>
+  <div>
+    Count
+    <button data-n="24">24</button><button data-n="100">100</button><button data-n="150">150</button><button data-n="300" class="on">300</button><button data-n="600">600</button>
+    <br><small>naive at high counts = ~18 draw calls per monster; slow is expected (control group)</small>
+  </div>
+  <div id="stats">Building…</div>
+</div>
+<div id="hint">Drag to orbit / wheel to zoom<br><span id="fps"></span></div>
+<div id="err"></div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module">import { initNav } from './nav.js'; initNav('horde');</script>
+<script type="module">
+import * as THREE from 'three';
+import { strideRate } from '../src/core/mummy.js';
+import { SPECIES } from '../src/species/index.js';
+import { bakeMummy, MAX_JOINTS, MAX_CHAIN } from '../src/bake.js';
+import { makeGaitParams, fillJoints, triggerAttack, advanceActions, stepRate } from '../src/gait.js';
+import { random, hashStr } from '../src/rng.js';
+import { makeLodGater, makeCullGrid } from '../src/lod.js';
+
+addEventListener('error', e => { document.getElementById('err').textContent = 'ERR: ' + e.message; });
+addEventListener('unhandledrejection', e => { document.getElementById('err').textContent = 'ERR: ' + (e.reason && e.reason.message || e.reason); });
+
+// ---------------------------------------------------------------------------
+// 模式：混编（?species=mix / mix_zombie / mix_robot，默认 mix）/
+// 单物种（?species=xxx，11 物种全开）。混编配比按「炮灰铺底 / 中坚 / 稀有」
+// 分层，配方表按 id 查表。
+// ---------------------------------------------------------------------------
+const MIX_RECIPES = {
+  // 全员：zombie/crawler/tickbot 铺底炮灰，runner 中坚（速度层次），
+  // bloater/screecher/spiderbot 点缀，centaurbot/brute 稀有重物，titan 巨物（min 1）
+  mix: [
+    { id: 'zombie',     share: 0.26 },
+    { id: 'crawler',    share: 0.19 },
+    { id: 'runner',     share: 0.15 },
+    { id: 'bloater',    share: 0.08 },
+    { id: 'screecher',  share: 0.08 },
+    { id: 'tickbot',    share: 0.11 },
+    { id: 'spiderbot',  share: 0.07 },
+    { id: 'centaurbot', share: 0.03, min: 2 },
+    { id: 'brute',      share: 0.02, min: 2 },
+    { id: 'titan',      share: 0.01, min: 1 },
+  ],
+  // 丧尸海：zombie/crawler/runner 铺底（runner 负责速度层次），
+  // bloater/screecher 点缀，brute 稀有重物，maggot 蛆群点缀（0.06 档）
+  mix_zombie: [
+    { id: 'zombie',    share: 0.24 },
+    { id: 'crawler',   share: 0.22 },
+    { id: 'runner',    share: 0.18 },
+    { id: 'bloater',   share: 0.12 },
+    { id: 'screecher', share: 0.12 },
+    { id: 'brute',     share: 0.06, min: 2 },
+    { id: 'maggot',    share: 0.06 },
+  ],
+  // 机器人海：tickbot 铺底炮灰，spiderbot 中坚，centaurbot 少，titan 稀（min 1）
+  mix_robot: [
+    { id: 'tickbot',    share: 0.46 },
+    { id: 'spiderbot',  share: 0.28 },
+    { id: 'centaurbot', share: 0.14, min: 2 },
+    { id: 'titan',      share: 0.05, min: 1 },
+  ],
+};
+const MIX_LABEL = { mix: 'All-species mix', mix_zombie: 'Zombie horde', mix_robot: 'Robot horde' };
+const SINGLE_IDS = ['zombie', 'bloater', 'runner', 'brute', 'screecher', 'crawler', 'maggot',
+  'tickbot', 'spiderbot', 'centaurbot', 'titan'];
+
+const q0 = new URLSearchParams(location.search);
+const sel = q0.get('species') || 'mix';
+const species = MIX_RECIPES[sel] ? sel
+  : (SPECIES[sel] && SINGLE_IDS.includes(sel) ? sel : 'mix');
+const ATK_HI = q0.get('atk') === '1';   // 全员高频攻击演示（截图/验收用）；默认低频随机起手
+const FIELD_R = 16;          // 怪海活动半径（到场边折返）
+// 性能双件套（src/lod.js）：距离分级动画更新默认开（?lod=0 关）；
+// 平面 2×2 网格视锥剔除默认开（?cull=0 回退单 mesh 模式做 A/B 对照）
+const LOD_ON = q0.get('lod') !== '0';
+const CULL = q0.get('cull') !== '0';
+const gater = makeLodGater();
+const grid = makeCullGrid({ half: 20, cells: 2, margin: 3 });
+const TAU = Math.PI * 2;
+
+// --- renderer / scene（风格照抄 sands/index.html） --------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14100c);
+{
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 32);
+  grad.addColorStop(0, '#9fb8d0'); grad.addColorStop(0.5, '#6a5f4c'); grad.addColorStop(1, '#241d14');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  scene.environment = tex;
+}
+scene.add(new THREE.HemisphereLight(0xfff2dd, 0x3a2f22, 1.1));
+const sun = new THREE.DirectionalLight(0xffe8c0, 2.2); sun.position.set(3, 6, 4); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x88a0c0, 0.6); fill.position.set(-4, 3, -3); scene.add(fill);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 200);
+
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(FIELD_R + 10, FIELD_R + 10, 0.1, 48),
+  new THREE.MeshStandardMaterial({ color: 0x8a7250, roughness: 1 }));
+ground.position.y = -0.05;
+scene.add(ground);
+scene.add(new THREE.GridHelper((FIELD_R + 10) * 2, 36, 0x4a3f30, 0x2c251c));
+
+// --- 简易轨道 ---------------------------------------------------------------
+const orbit = { yaw: 0.3, pitch: 0.22, dist: 24, tx: 0, ty: 1.0 };
+if (q0.get('dist')) orbit.dist = Math.max(3, Math.min(90, +q0.get('dist')) || 24);
+if (q0.get('yaw')) orbit.yaw = +q0.get('yaw') || 0;
+if (q0.get('pitch')) orbit.pitch = +q0.get('pitch');
+function applyOrbit() {
+  const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
+  camera.position.set(
+    orbit.tx + orbit.dist * cp * Math.sin(orbit.yaw),
+    orbit.ty + orbit.dist * sp,
+    orbit.dist * cp * Math.cos(orbit.yaw));
+  camera.lookAt(orbit.tx, orbit.ty, 0);
+}
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+});
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; renderer.domElement.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!drag) return;
+  orbit.yaw -= (e.clientX - drag.x) * 0.006;
+  orbit.pitch = Math.max(-1.2, Math.min(1.4, orbit.pitch + (e.clientY - drag.y) * 0.005));
+  drag = { x: e.clientX, y: e.clientY };
+  applyOrbit();
+});
+addEventListener('pointerup', () => drag = null);
+renderer.domElement.addEventListener('wheel', e => {
+  orbit.dist = Math.max(3, Math.min(60, orbit.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+  applyOrbit();
+}, { passive: true });
+applyOrbit();
+
+// --- 顶点着色器补丁 -----------------------------------------------------------
+// 关节数据走 DataTexture 而非 instanced attributes：11+3 个关节 × vec4 加上
+// instanceMatrix 4 槽会爆 16 attribute 上限；纹理路径还能顺带捎 bob/flash。
+// 纹理行寻址用 aRow（格内槽位 → 全局实例行号，lod.js 网格剔除下
+// gl_InstanceID 只是格内序号，必须经 aRow 映射；单 mesh 模式 aRow = 0..n-1）。
+const VERT_HEAD = /* glsl */`
+attribute float aJoint;
+attribute float aRow;
+uniform sampler2D uJoints;
+uniform vec3 uPiv[${MAX_JOINTS}];
+uniform int uChainStart[${MAX_JOINTS}];
+uniform int uChainLen[${MAX_JOINTS}];
+uniform int uChainList[${MAX_JOINTS * MAX_CHAIN}];
+varying float vFlash;
+vec4 hQmul(vec4 a, vec4 b) {
+  return vec4(
+    a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z);
+}
+vec3 hQrot(vec4 q, vec3 v) {
+  vec3 t = 2.0 * cross(q.xyz, v);
+  return v + q.w * t + cross(q.xyz, t);
+}
+`;
+// 嵌套关节的正确性：链上 G_i = 绕「被祖先变换后的 pivot」旋转 Qacc*q_i*Qacc^-1。
+// 展开后累计式为 Qacc' = Qacc*q；tacc' = tacc + Qacc*(piv - q*piv)，
+// 最后 v' = Qacc*v + tacc —— 每关节一次四元数乘 + 两次旋转向量。
+const BEGINNORMAL = /* glsl */`
+#include <beginnormal_vertex>
+int hRow = int(aRow + 0.5);
+vec4 hMeta = texelFetch(uJoints, ivec2(0, hRow), 0);
+vFlash = hMeta.y;
+float hBob = hMeta.x;
+int hLeaf = int(aJoint + 0.5);
+vec4 hQ = vec4(0.0, 0.0, 0.0, 1.0);
+vec3 hT = vec3(0.0);
+{
+  int hCs = uChainStart[hLeaf];
+  int hCl = uChainLen[hLeaf];
+  for (int hCi = 0; hCi < hCl; ++hCi) {
+    int hJ = uChainList[hCs + hCi];
+    vec4 hJq = texelFetch(uJoints, ivec2(hJ, hRow), 0);
+    vec3 hPiv = uPiv[hJ];
+    hT += hQrot(hQ, hPiv - hQrot(hJq, hPiv));
+    hQ = hQmul(hQ, hJq);
+  }
+}
+if (hLeaf > 0) objectNormal = hQrot(hQ, objectNormal);
+`;
+const BEGIN = /* glsl */`
+#include <begin_vertex>
+if (hLeaf > 0) {
+  transformed = hQrot(hQ, transformed) + hT;
+  transformed.y += hBob;
+}
+`;
+const FRAG_HEAD = /* glsl */`varying float vFlash;\n`;
+const COLOR_FRAG = /* glsl */`
+#include <color_fragment>
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(4.0), clamp(vFlash, 0.0, 1.0));
+`;
+
+// --- 批次（每物种一套）：烘焙 + InstancedMesh 组 + 关节纹理 -------------------
+// 单物种模式 = 只有一个批次；mix = 每物种一个批次。draw call 数 =
+// Σ 批次数（材质分组） + 地面 + 网格，与总只数无关。
+let mode = 'instanced';
+let N = 300;
+let batches = [];        // [{ id, spec, factory, n, baked, jointTex, jointData, groups[], states[] }]
+let hordeGroup = null;
+let naiveActors = [];
+
+function mixCounts(total, recipe) {
+  // 先按 share 取整，再把舍入差轮补到各物种上，保证总数恒为 total
+  const counts = recipe.map(r => Math.max(r.min || 0, Math.round(total * r.share)));
+  let diff = total - counts.reduce((a, b) => a + b, 0);
+  let i = 0;
+  while (diff !== 0) { counts[i % counts.length] += Math.sign(diff); diff -= Math.sign(diff); i++; }
+  return counts;
+}
+
+async function makeBatches() {
+  batches = [];
+  const statsEl = document.getElementById('stats');
+  const recipe = MIX_RECIPES[species];
+  if (recipe) {
+    const counts = mixCounts(N, recipe);
+    for (let k = 0; k < recipe.length; k++) {
+      const { id } = recipe[k];
+      const { spec, factory } = SPECIES[id];
+      statsEl.textContent = `Baking… ${id} (${k + 1}/${recipe.length})`;
+      await new Promise(r => setTimeout(r));      // 让加载提示有机会上屏
+      const baked = bakeMummy(factory, spec);
+      console.log(`[horde] ${id} baked: ${baked.parts.length} material groups, ${baked.jointCount} joints (incl. static), reference ${baked.triangles} tri`);
+      batches.push({ id, spec, factory, n: counts[k], baked, states: [] });
+    }
+  } else {
+    const { spec, factory } = SPECIES[species];
+    statsEl.textContent = `Baking… ${species}`;
+    await new Promise(r => setTimeout(r));
+    const baked = bakeMummy(factory, spec);
+    console.log(`[horde] ${species} baked: ${baked.parts.length} material groups, ${baked.jointCount} joints (incl. static), reference ${baked.triangles} tri`);
+    batches.push({ id: species, spec, factory, n: N, baked, states: [] });
+  }
+}
+
+function makeStates() {
+  for (const b of batches) {
+    b.states = [];
+    for (let i = 0; i < b.n; i++) {
+      // 全部走 rng.js：位置/朝向 = 模块级 RNG（?seed= 控制）；步态参数 =
+      // 按 (物种, 槽位) 派生的实例种子，与刷怪顺序无关（联机跨端一致）
+      const r = FIELD_R * 0.85 * Math.sqrt(random());
+      const a = random() * TAU;
+      const params = makeGaitParams(b.spec, (hashStr(b.id) + i * 2654435761) >>> 0);
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const heading = random() * TAU;
+      b.states.push({
+        x, z, heading,
+        speed: params.speed, baseSpeed: params.speed, scale: params.scale,
+        params,
+        cell: -1, cellSlot: i,       // 剔除网格：当前格号 / 格内槽位（rebuildCells 填）
+        lodDt: 0, lodTier: 0,        // 距离分级：dt 累积 / 当次档位（lod.js gater 填）
+        // 攻击演示计时（秒）：默认低频随机起手，?atk=1 全员高频（截图用）。
+        // 走模块级 RNG（?seed= 可复现）
+        nextAtk: 1.5 + random() * 5,
+        atkFrozen: false,
+        // 出厂快照（探针用）：运行期 params.phase/speed 会推进，验收读这份
+        init: { x, z, heading, speed: params.speed, phase: params.phase,
+          scale: params.scale, gjStride: params.gjStride, gjSwing: params.gjSwing,
+          tilt: params.tilt, reach: params.reach },
+      });
+    }
+  }
+}
+
+function clearHorde() {
+  if (hordeGroup) { scene.remove(hordeGroup); hordeGroup = null; }
+  for (const b of batches) {
+    b.groups = [];
+    if (b.jointTex) { b.jointTex.dispose(); b.jointTex = null; b.jointData = null; }
+  }
+  naiveActors = [];
+}
+
+// 浅共享几何：剔除模式下每格一份 geometry 壳（属性缓冲共享，零顶点拷贝），
+// 这样才能给每格挂自己的 aRow instanced attribute（格内槽位→全局行号映射不同）
+function shareGeometry(src) {
+  const g = new THREE.BufferGeometry();
+  g.index = src.index;
+  for (const name in src.attributes) g.setAttribute(name, src.attributes[name]);
+  return g;
+}
+
+// 一个「渲染组」= 一格（剔除模式）或整批（单 mesh 模式）：
+// 组内全部 parts 的 InstancedMesh 共享同一 instanceMatrix 缓冲 + aRow 缓冲
+function makeGroup(b) {
+  return {
+    list: [],           // 组内全局实例号
+    mat: new THREE.InstancedBufferAttribute(new Float32Array(b.n * 16), 16),
+    row: new THREE.InstancedBufferAttribute(new Float32Array(b.n), 1),
+    meshes: null,       // 惰性：空格不建 mesh（省 draw call）
+  };
+}
+
+function ensureGroupMeshes(b, g, cellIdx) {
+  if (g.meshes) return;
+  g.meshes = [];
+  g.mat.setUsage(THREE.DynamicDrawUsage);
+  g.row.setUsage(THREE.DynamicDrawUsage);
+  let sphere = null;
+  if (CULL) {
+    const s = grid.cellSphere(cellIdx);
+    sphere = new THREE.Sphere(new THREE.Vector3(s.cx, s.cy, s.cz), s.r);
+  }
+  for (const part of b.baked.parts) {
+    const geo = CULL ? shareGeometry(part.geometry) : part.geometry;
+    geo.setAttribute('aRow', g.row);
+    const mat = part.blob ? part.material : patchMaterial(b, part.material.clone());
+    const im = new THREE.InstancedMesh(geo, mat, b.n);
+    im.instanceMatrix = g.mat;
+    if (CULL) {
+      im.frustumCulled = true;      // 格级包围球，three 自动视锥剔除整格
+      im.boundingSphere = sphere;
+    } else {
+      im.frustumCulled = false;     // 实例散布全场，整体包围球剔除没意义
+    }
+    im.count = 0;
+    hordeGroup.add(im);
+    g.meshes.push(im);
+  }
+}
+
+// 实例格子重分配（0.5s 一次，不每帧搬）：重排组内名单 + aRow 映射 +
+// 每实例 st.cell/st.cellSlot（主循环写矩阵用）。格子由 st.x/st.z 符号决定。
+function rebuildCells(b) {
+  for (const g of b.groups) g.list.length = 0;
+  for (let i = 0; i < b.n; i++) {
+    const st = b.states[i];
+    const c = CULL ? grid.cellIndex(st.x, st.z) : 0;
+    st.cell = c;
+    st.cellSlot = b.groups[c].list.length;
+    b.groups[c].list.push(i);
+  }
+  for (let c = 0; c < b.groups.length; c++) {
+    const g = b.groups[c];
+    if (!g.list.length) {
+      if (g.meshes) for (const im of g.meshes) im.count = 0;
+      continue;
+    }
+    ensureGroupMeshes(b, g, c);
+    for (let s = 0; s < g.list.length; s++) g.row.array[s] = g.list[s];
+    g.row.needsUpdate = true;
+    for (const im of g.meshes) im.count = g.list.length;
+  }
+}
+
+// 有实例跨格才重建对应批次（cullReassign 每 0.5s 调一次）
+function cullReassign() {
+  if (!CULL) return;
+  for (const b of batches) {
+    let dirty = false;
+    for (let i = 0; i < b.n; i++) {
+      if (grid.cellIndex(b.states[i].x, b.states[i].z) !== b.states[i].cell) { dirty = true; break; }
+    }
+    if (dirty) rebuildCells(b);
+  }
+}
+
+function patchMaterial(b, mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uJoints = { value: b.jointTex };
+    shader.uniforms.uPiv = { value: b.pivArr };
+    shader.uniforms.uChainStart = { value: b.baked.chainStart };
+    shader.uniforms.uChainLen = { value: b.baked.chainLen };
+    shader.uniforms.uChainList = { value: b.baked.chainList };
+    shader.vertexShader = VERT_HEAD + shader.vertexShader
+      .replace('#include <beginnormal_vertex>', BEGINNORMAL)
+      .replace('#include <begin_vertex>', BEGIN);
+    shader.fragmentShader = FRAG_HEAD + shader.fragmentShader
+      .replace('#include <color_fragment>', COLOR_FRAG);
+  };
+  return mat;
+}
+
+function buildInstancedBatch(b) {
+  b.jointData = new Float32Array(MAX_JOINTS * b.n * 4);
+  b.jointTex = new THREE.DataTexture(b.jointData, MAX_JOINTS, b.n, THREE.RGBAFormat, THREE.FloatType);
+  b.jointTex.minFilter = b.jointTex.magFilter = THREE.NearestFilter;
+  b.jointTex.generateMipmaps = false;
+
+  const baked = b.baked;
+  b.pivArr = [];
+  for (let i = 0; i < MAX_JOINTS; i++) {
+    b.pivArr.push(new THREE.Vector3(baked.pivots[i * 3], baked.pivots[i * 3 + 1], baked.pivots[i * 3 + 2]));
+  }
+
+  b.groups = [];
+  for (let c = 0, gc = CULL ? grid.cells * grid.cells : 1; c < gc; c++) b.groups.push(makeGroup(b));
+
+  // 初始姿态全量写一次（dt=0：冻结档实例的第一帧也有正确姿态而非全零行）
+  for (let i = 0; i < b.n; i++) {
+    fillJoints(b.jointData, i, MAX_JOINTS, b.states[i].params, b.spec, baked.stepSpan, 0);
+  }
+  b.jointTex.needsUpdate = true;
+  rebuildCells(b);
+}
+
+function buildInstanced() {
+  hordeGroup = new THREE.Group();
+  for (const b of batches) buildInstancedBatch(b);
+  scene.add(hordeGroup);
+}
+
+function buildNaive() {
+  hordeGroup = new THREE.Group();
+  for (const b of batches) {
+    for (let i = 0; i < b.n; i++) {
+      const actor = b.factory(b.spec, i);
+      const rig = actor.rig;
+      const st = b.states[i];
+      rig.group.scale.setScalar(actor.scale);
+      st.scale = actor.scale;
+      hordeGroup.add(rig.group);
+      actor.animState = {
+        phase: actor.st.phase, speed: 0, windup: 0, strike: 0,
+        stagger: 0, staggerRoll: 0, staggerPitch: 0,
+        hit: 0, hitLX: 0, hitLY: 0.55, hitF: 0, hitS: 0, hitHead: 0,
+      };
+      naiveActors.push({ actor, st, spec: b.spec });
+    }
+  }
+  scene.add(hordeGroup);
+}
+
+function build() {
+  clearHorde();
+  makeStates();
+  if (mode === 'instanced') buildInstanced(); else buildNaive();
+  window.__horde = {
+    species, mode, n: N, fps: 0, calls: 0, triangles: 0, ready: false, simT: 0,
+    lod: LOD_ON, cull: CULL,
+    batches: Object.fromEntries(batches.map(b => [b.id, b.n])),
+    // 探针：每物种材质分组数（draw call 验收：cull=0 时 calls = Σparts + 2）
+    parts: Object.fromEntries(batches.map(b => [b.id, b.baked.parts.length])),
+    // 探针：读关节纹理行头 8 个浮点（bob/flash/sever/+HIPS 四元数——
+    // 动画存活断言：两次采样必须变化）
+    jointRow(bi, i) {
+      const b = batches[bi];
+      if (!b || !b.jointData || !b.states[i]) return null;
+      const o = i * MAX_JOINTS * 4;
+      return Array.from(b.jointData.slice(o, o + 8));
+    },
+    // 探针：出厂参数快照（init 是创建时刻副本，不受动画推进影响）
+    snapshot() {
+      return batches.map(b => ({ id: b.id, n: b.n,
+        states: b.states.map(st => ({ ...st.init })) }));
+    },
+    // LOD 探针：本帧各档实例数 + 实际写纹理行数（验收计数器，非 fps）
+    lodStats() {
+      const s = gater.stats;
+      return { tiers: s.tiers.slice(), rows: s.rows, total: s.total };
+    },
+    // LOD 探针：单实例档位/相位/步频/距相机（相位连续性验收用）
+    lodOf(bi, i) {
+      const b = batches[bi]; if (!b || !b.states[i]) return null;
+      const st = b.states[i];
+      return {
+        tier: st.lodTier, phase: st.params.phase, lodDt: st.lodDt || 0,
+        atkT: st.params.atkT, stgT: st.params.stgT,
+        rate: stepRate(b.spec, b.baked.stepSpan, st.params.scale, st.params.gjStride, st.params.speed),
+        dist: Math.hypot(st.x - camera.position.x, camera.position.y, st.z - camera.position.z),
+        x: st.x, z: st.z,
+      };
+    },
+    // LOD 探针：钩手起攻击（断言攻击中强制每帧档）
+    attack(bi, i) {
+      const st = batches[bi] && batches[bi].states[i];
+      return !!(st && triggerAttack(st.params));
+    },
+    // LOD 探针：关停自动攻击（相位连续性采样不被 atkFrozen 降速打断）
+    calm() { for (const b of batches) for (const st of b.states) st.nextAtk = 1e9; },
+    // 探针相机：away=true 时背对场心（剔除 A/B 用）
+    setCam(yaw, pitch, dist, away) {
+      orbit.yaw = yaw; orbit.pitch = pitch; orbit.dist = dist;
+      applyOrbit();
+      if (away) {
+        const p = camera.position;
+        camera.lookAt(p.x + (p.x - orbit.tx), p.y + (p.y - orbit.ty), p.z * 2);
+      }
+    },
+  };
+}
+
+// --- UI -----------------------------------------------------------------------
+const q = new URLSearchParams(location.search);
+if (q.get('mode') === 'naive') mode = 'naive';
+if (q.get('n')) N = Math.max(1, Math.min(1200, +q.get('n') | 0));
+for (const b of document.querySelectorAll('button[data-species]')) {
+  b.classList.toggle('on', b.dataset.species === species);
+  b.onclick = () => {
+    if (b.dataset.species === species) return;
+    q.set('species', b.dataset.species);
+    location.search = q.toString();     // 烘焙是加载期一次性产物，切物种走 reload
+  };
+}
+for (const b of document.querySelectorAll('button[data-mode]')) {
+  b.classList.toggle('on', b.dataset.mode === mode);
+  b.onclick = () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll('button[data-mode]').forEach(x => x.classList.toggle('on', x === b));
+    build();
+  };
+}
+for (const b of document.querySelectorAll('button[data-n]')) {
+  b.classList.toggle('on', +b.dataset.n === N);
+  b.onclick = () => {
+    const next = +b.dataset.n;
+    document.querySelectorAll('button[data-n]').forEach(x => x.classList.toggle('on', x === b));
+    if (next === N) return;
+    N = next;
+    if (MIX_RECIPES[species]) {
+      // 配比随总数变，批次要重建——走 reload 最干净
+      q.set('n', String(N));
+      location.search = q.toString();
+    } else {
+      batches[0].n = N;
+      build();
+    }
+  };
+}
+
+// --- 主循环 ---------------------------------------------------------------------
+const clock = new THREE.Clock();
+const m4 = new THREE.Matrix4();
+const quat = new THREE.Quaternion();
+const posV = new THREE.Vector3();
+const sclV = new THREE.Vector3();
+const YAXIS = new THREE.Vector3(0, 1, 0);
+let frames = 0, tFps = 0, fps = 0, flashTimer = 0, cullTimer = 0, simT = 0;
+
+function moveStates(dt) {
+  for (const b of batches) {
+    for (const st of b.states) {
+      if (st.params.atkT >= 0) continue;   // 攻击中不走位（原版 busy 语义）
+      st.x += Math.sin(st.heading) * st.speed * dt;
+      st.z += Math.cos(st.heading) * st.speed * dt;
+      const r = Math.hypot(st.x, st.z);
+      if (r > FIELD_R) {
+        // 到场边折返：朝场心转向
+        const want = Math.atan2(-st.x, -st.z);
+        let dth = ((want - st.heading + Math.PI * 3) % TAU) - Math.PI;
+        st.heading += Math.sign(dth) * Math.min(Math.abs(dth), 2.2 * dt);
+      }
+    }
+  }
+}
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (!batches.length || !batches[0].states.length) return;
+  simT += dt;   // 模拟时钟（dt 有 0.05 clamp，低帧率下 ≠ 墙钟；相位探针按它对账）
+  moveStates(dt);
+
+  // 受击闪白演示通道：周期性随机点几只
+  flashTimer -= dt;
+  if (flashTimer <= 0) {
+    flashTimer = 1.2;
+    for (const b of batches) {
+      for (let k = 0; k < Math.max(1, b.n >> 4); k++) {
+        b.states[(random() * b.n) | 0].params.flash = 1;
+      }
+    }
+  }
+
+  // 攻击演示：低频随机起手（seeded RNG，?seed= 可复现），?atk=1 全员高频。
+  // 攻击期间 gait speed 归零（原地站定挥击，同 shooter 的 atkFrozen 契约）
+  for (const b of batches) {
+    for (const st of b.states) {
+      st.nextAtk -= dt;
+      if (st.nextAtk <= 0 && triggerAttack(st.params)) {
+        st.nextAtk = ATK_HI ? 0.3 + random() * 0.6 : 2.5 + random() * 5;
+      }
+      const prm = st.params;
+      if (prm.atkT >= 0 && !st.atkFrozen) {
+        st.atkFrozen = true; st.speedSave = prm.speed;
+        prm.speed = 0; st.speed = 0;
+      } else if (prm.atkT < 0 && st.atkFrozen) {
+        st.atkFrozen = false; prm.speed = st.speedSave; st.speed = st.speedSave;
+      }
+    }
+  }
+
+  if (mode === 'instanced') {
+    // 距离分级动画更新（lod.js）：按平方距分档，降档实例累积 dt 一次性推进
+    // （相位/步频与每帧更新逐秒一致）；攻击/受击/闪白中的实例强制每帧档。
+    gater.beginFrame();
+    cullTimer -= dt;
+    if (cullTimer <= 0) { cullTimer = 0.5; cullReassign(); }   // 格子重分配 0.5s 一次
+    const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+    for (const b of batches) {
+      let rows = 0;
+      for (let i = 0; i < b.n; i++) {
+        const st = b.states[i];
+        st.params.flash = Math.max(0, st.params.flash - dt * 2.5);
+        const prm = st.params;
+        const force = prm.atkT >= 0 || prm.stgT >= 0 || prm.flash > 0;
+        let adv = dt;
+        if (LOD_ON) {
+          adv = gater.step(st, i, st.x, 0, st.z, cx, cy, cz, dt, force);
+          if (adv > 0) {
+            fillJoints(b.jointData, i, MAX_JOINTS, prm, b.spec, b.baked.stepSpan, adv);
+            rows++;
+          }   // adv=0：本帧冻结/未到更新帧，纹理行保持（姿态定格）
+        } else {
+          fillJoints(b.jointData, i, MAX_JOINTS, prm, b.spec, b.baked.stepSpan, dt);
+          rows++;
+        }
+        posV.set(st.x, 0, st.z);
+        quat.setFromAxisAngle(YAXIS, st.heading);
+        sclV.setScalar(st.scale);
+        m4.compose(posV, quat, sclV);
+        const g = b.groups[st.cell];
+        m4.toArray(g.mat.array, st.cellSlot * 16);
+      }
+      if (rows > 0) b.jointTex.needsUpdate = true;   // 全批冻结时连纹理上传都省
+      for (const g of b.groups) if (g.meshes && g.list.length) g.mat.needsUpdate = true;
+    }
+  } else {
+    for (const { actor, st, spec } of naiveActors) {
+      const rig = actor.rig, ast = actor.st, a = actor.animState;
+      ast.phase += dt * strideRate(spec, rig, st.speed);
+      // 攻击/受击时码与 instanced 侧共用同一条 advanceActions 时序
+      const la = advanceActions(st.params, spec, dt);
+      a.phase = ast.phase; a.speed = st.speed;
+      a.windup = la.wu; a.strike = la.stk;
+      a.stagger = la.stg; a.staggerRoll = la.roll; a.staggerPitch = la.pitch;
+      a.hit = la.hk;
+      a.hitLX = st.params.hitLX; a.hitLY = st.params.hitLY;
+      a.hitF = st.params.stgF; a.hitS = st.params.stgS;
+      a.hitHead = st.params.hitHead;
+      spec.animate(rig, spec, a);
+      rig.group.position.set(st.x, 0, st.z);
+      rig.group.rotation.y = st.heading;
+    }
+  }
+
+  renderer.render(scene, camera);
+  const info = renderer.info.render;
+  // calls/triangles 每帧直写钩子（剔除 A/B 探针读当帧值，不等 0.5s 面板节拍）
+  if (window.__horde) Object.assign(window.__horde, { calls: info.calls, triangles: info.triangles, simT });
+  frames++; tFps += dt;
+  if (tFps >= 0.5) {
+    fps = Math.round(frames / tFps); frames = 0; tFps = 0;
+    const line = `${fps} fps · draw calls ${info.calls} · tri ${info.triangles}`;
+    document.getElementById('fps').textContent = line;
+    const partSum = batches.reduce((s, b) => s + b.baked.parts.length, 0);
+    const gc = CULL ? grid.cells * grid.cells : 1;
+    document.getElementById('stats').textContent =
+      (MIX_RECIPES[species]
+        ? `${MIX_LABEL[species]} · ${mode} × ${N}\n` +
+          batches.map(b => `${b.id} ${b.n}`).join(' / ') + '\n'
+        : `${species} · ${mode} × ${N}\n`) +
+      (mode === 'instanced'
+        ? (CULL
+          ? `Culling on: ${batches.length} species × ${partSum / batches.length | 0}~ material groups × ${gc} cells, draw call bound ${partSum * gc + 2} (?cull=0 falls back to ${partSum + 2})\n` +
+            `LOD tiers ${gater.stats.tiers.join('/')} · rows written ${gater.stats.rows}/${gater.stats.total} (?lod=0 disables)`
+          : `${batches.length} species batches × material groups = ${partSum} + ground/grid 2 = ${partSum + 2} draw calls (whole field, independent of count)\n` +
+            `LOD tiers ${gater.stats.tiers.join('/')} · rows written ${gater.stats.rows}/${gater.stats.total} (?lod=0 disables)`)
+        : `naive reference: ${N} actors × ~18 meshes in separate Groups + animate()`);
+    Object.assign(window.__horde, { fps, ready: true });
+  }
+});
+
+// --- 启动：先烘焙（异步让加载提示上屏），再建场 --------------------------------
+(async () => {
+  await makeBatches();
+  build();
+})();
+</script>
+</body>
+</html>

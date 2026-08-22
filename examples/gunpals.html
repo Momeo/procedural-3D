@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procedural-3D — gun pals (living weapons)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;height:100%;background:#101210;color:#ddd8c8;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  #panel{position:fixed;top:10px;left:10px;z-index:2;background:#141812e6;padding:10px 12px;border-radius:6px;max-width:400px}
+  #panel small{color:#9aa088}
+  .grow{padding:4px 6px;margin:2px 0;border-radius:4px;cursor:pointer;color:#c8c4a8}
+  .grow:hover{background:#2a2a20}
+  .grow.on{background:#4a5c28;color:#e8f0d0}
+  .grow small{color:#8a9070;margin-left:4px}
+  .grow .go{float:right;font-style:normal;color:#7fa0d8;border:1px solid #3a4a60;border-radius:3px;padding:0 6px;font-size:11px}
+  .grow .go:hover{background:#2a3a50}
+  #selinfo{margin:6px 0 2px;color:#d8c890}
+  #statebar{display:flex;gap:4px;margin:4px 0 6px}
+  #statebar button{flex:1;background:#22261c;color:#b8b498;border:1px solid #3a3e30;border-radius:4px;padding:3px 0;cursor:pointer;font:12px system-ui}
+  #statebar button:hover{background:#2e3325}
+  #statebar button.on{background:#5c4828;color:#f0e0b8}
+  #hint{position:fixed;right:10px;top:8px;color:#9aa088;font-size:12px;text-align:right;z-index:2}
+  #fps{color:#7fd98f}
+  #err{position:fixed;left:10px;bottom:10px;color:#ff7a6a;white-space:pre;z-index:3;font:12px monospace}
+</style>
+</head>
+<body>
+<div id="panel">
+  <b>Gun pals — 5 living weapons (click row = select, "hold" = first person)</b><br>
+  <div class="grow" data-i="0"><b>1 Stagbite SMG</b><span class="go">hold</span><br><small>jaw-clamped barrel, elytra handguard · 0.11s cycle</small></div>
+  <div class="grow" data-i="1"><b>2 Crocmaw rifle</b><span class="go">hold</span><br><small>long-snout barrel, scale rail · 0.22s cycle</small></div>
+  <div class="grow" data-i="2"><b>3 Flytrap shotgun</b><span class="go">hold</span><br><small>trumpet-mouth muzzle, vine grip · 0.8s heavy recoil</small></div>
+  <div class="grow" data-i="3"><b>4 Squidlet pistol</b><span class="go">hold</span><br><small>tentacle-crown muzzle, giant eye · 0.2s cycle</small></div>
+  <div class="grow" data-i="4"><b>5 Viperscope sniper</b><span class="go">hold</span><br><small>snake-body frame, tongue charging handle · 0.9s heavy sniper</small></div>
+  <div id="selinfo">Nothing selected (click a gun or a panel row)</div>
+  <div id="statebar">
+    <button data-s="idle">Idle (I)</button>
+    <button data-s="aim">Aim (A)</button>
+    <button data-s="fire">Fire (F)</button>
+    <button data-s="overheat">Overheat (O)</button>
+  </div>
+  <small>muzzle=mouth · big eyes + eyelids · idle looks back at you · aim squints + laser · fire goes wild · sustained fire overheats into smoke</small>
+</div>
+<div id="hint">Gallery: drag to orbit / wheel to zoom / click to select<br>Hold (1-5): hold LMB to fire · hold RMB to aim · 0/Esc back to gallery<br><span id="fps"></span></div>
+<div id="err"></div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module">import { initNav } from './nav.js'; initNav('gunpals');</script>
+<script type="module" src="./gunpals.js"></script>
+</body>
+</html>
