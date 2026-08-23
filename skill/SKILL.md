@@ -27,6 +27,9 @@ the horde, and is fully hittable/dismemberable.
    - limbless organic → `src/species/maggot.js` (lathe/ellipsoid/cyl only, slug gait)
    - flying → `src/species/flyers.js` (carrion = single wing pair, moth/hornet = two
      wing pairs on the ARM2 slots, hoverdrone = wingless hover + spin ring)
+   - dragon → `src/species/dragons.js` (long neck + protruding head, chained tatter
+     pivots for the tail, membrane wings on the ARM2 slots, `buildDragonRig` shared
+     skeleton: sprite = slim, earth = fat with tiny wings, frost = skeletal, draco = big)
 3. **Write the spec tables** (contracts below). Respect the iron rule
    `hipY = thighL + shinL` or the feet float.
 4. **Textures** (optional): follow the wraps.js/zombie.js canvas paradigm — draw albedo

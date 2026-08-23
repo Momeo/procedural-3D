@@ -20,16 +20,18 @@
 <body>
 <div id="panel">
   <b>Horde — baked single geometry + InstancedMesh</b><br>
-  <small>Default "all mix" of 14 species; series mixes (zombie/robot/flyer hordes) or 15 single-species picks — one bake + joint texture per species</small>
+  <small>Default "all mix" of 18 species; series mixes (zombie/robot/flyer/dragon hordes) or 19 single-species picks — one bake + joint texture per species</small>
   <div style="margin:6px 0">
     Mix
-    <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button><button data-species="mix_fly">Flyers</button>
+    <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button><button data-species="mix_fly">Flyers</button><button data-species="mix_dragon">Dragons</button>
     <br><small>Zombie</small>
     <button data-species="zombie">zombie</button><button data-species="bloater">bloater</button><button data-species="runner">runner</button><button data-species="brute">brute</button><button data-species="screecher">screecher</button><button data-species="crawler">crawler</button><button data-species="maggot">maggot</button>
     <br><small>Robot</small>
     <button data-species="tickbot">tickbot</button><button data-species="spiderbot">spiderbot</button><button data-species="centaurbot">centaurbot</button><button data-species="titan">titan</button>
     <br><small>Flyer</small>
     <button data-species="carrion">carrion</button><button data-species="moth">moth</button><button data-species="hornet">hornet</button><button data-species="hoverdrone">hoverdrone</button>
+    <br><small>Dragon</small>
+    <button data-species="sprite">sprite</button><button data-species="earth">earth</button><button data-species="frost">frost</button><button data-species="draco">draco</button>
   </div>
   <div style="margin:6px 0">
     Mode
@@ -83,6 +85,10 @@ const MIX_RECIPES = {
     { id: 'moth',       share: 0.05, min: 1 },
     { id: 'hornet',     share: 0.04, min: 1 },
     { id: 'hoverdrone', share: 0.03, min: 1 },
+    { id: 'sprite',     share: 0.03, min: 1 },
+    { id: 'earth',      share: 0.02, min: 1 },
+    { id: 'frost',      share: 0.02, min: 1 },
+    { id: 'draco',      share: 0.01, min: 1 },
   ],
   // 丧尸海：zombie/crawler/runner 铺底（runner 负责速度层次），
   // bloater/screecher 点缀，brute 稀有重物，maggot 蛆群点缀（0.06 档）
@@ -109,11 +115,19 @@ const MIX_RECIPES = {
     { id: 'hornet',     share: 0.26 },
     { id: 'hoverdrone', share: 0.08, min: 1 },
   ],
+  // 龙海：四龙——sprite 铺底，earth/frost 中坚，draco 稀（min 1）
+  mix_dragon: [
+    { id: 'sprite', share: 0.40 },
+    { id: 'earth',  share: 0.26 },
+    { id: 'frost',  share: 0.24 },
+    { id: 'draco',  share: 0.10, min: 1 },
+  ],
 };
-const MIX_LABEL = { mix: 'All-species mix', mix_zombie: 'Zombie horde', mix_robot: 'Robot horde', mix_fly: 'Flyer horde' };
+const MIX_LABEL = { mix: 'All-species mix', mix_zombie: 'Zombie horde', mix_robot: 'Robot horde', mix_fly: 'Flyer horde', mix_dragon: 'Dragon horde' };
 const SINGLE_IDS = ['zombie', 'bloater', 'runner', 'brute', 'screecher', 'crawler', 'maggot',
   'tickbot', 'spiderbot', 'centaurbot', 'titan',
-  'carrion', 'moth', 'hornet', 'hoverdrone'];
+  'carrion', 'moth', 'hornet', 'hoverdrone',
+  'sprite', 'earth', 'frost', 'draco'];
 
 const q0 = new URLSearchParams(location.search);
 const sel = q0.get('species') || 'mix';

@@ -65,7 +65,8 @@ const grid = makeCullGrid({ half: 20, cells: 2, margin: 3 });
 // tickbot 26 = 四肢两连击（25）后剩 1 血——不然第二枪先致死，断肢永远触发不到。
 const HP = { zombie: 30, crawler: 20, runner: 24, screecher: 26, bloater: 80, brute: 160,
   tickbot: 26, spiderbot: 42, centaurbot: 95, titan: 320, maggot: 20,
-  carrion: 30, moth: 24, hornet: 16, hoverdrone: 46 };   // 飞行种：hornet 一枪、hoverdrone 两发爆头
+  carrion: 30, moth: 24, hornet: 16, hoverdrone: 46,   // 飞行种：hornet 一枪、hoverdrone 两发爆头
+  sprite: 20, earth: 50, frost: 36, draco: 80 };          // 龙系列：earth 胖所以肉
 const BODY_DMG = 25;
 // 配比同 horde 丧尸海；?species=xxx 切单物种模式（探针/专项验收用，默认不动）
 const ONLY = SPECIES[q.get('species')] ? q.get('species') : null;

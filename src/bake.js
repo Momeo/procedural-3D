@@ -119,8 +119,9 @@ export function bakeMummy(createEnemy, MUMMY) {
   rig.hips.rotation.set(0, 0, 0);
   rig.torso.rotation.set(0, 0, 0);
   rig.neck.rotation.set(0, 0, 0);
-  for (const leg of rig.legs) { leg.hip.rotation.set(0, 0, 0); leg.knee.rotation.set(0, 0, 0); }
-  for (const arm of rig.arms) { arm.shoulder.rotation.set(0, 0, 0); arm.elbow.rotation.set(0, 0, 0); }
+  // 稀疏肢体数组守卫（dragons.js 翅膀只占 arms[2]/[3]，0/1 是空洞）
+  for (const leg of rig.legs) { if (!leg) continue; leg.hip.rotation.set(0, 0, 0); leg.knee.rotation.set(0, 0, 0); }
+  for (const arm of rig.arms) { if (!arm) continue; arm.shoulder.rotation.set(0, 0, 0); arm.elbow.rotation.set(0, 0, 0); }
   for (const t of rig.tatters) t.pivot.rotation.set(0, 0, 0);
   rig.group.position.set(0, 0, 0);
   rig.group.rotation.set(0, 0, 0);

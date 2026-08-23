@@ -7,12 +7,14 @@
 Everything is generated in code: geometry, textures, materials, animation. No model files,
 no texture files, no build step — plain ES modules with a single peer dependency (`three`).
 
-- **15 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots and 4 flyers) driven by pure-data specs
+- **19 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers and 4 dragons) driven by pure-data specs
   (palette / proportions / gait) — a new monster is a new table, not new machinery.
 - **Flyer support**: `gait.kind = 'fly'` wing-flap/hover gaits (two wing pairs on the
   extended joint slots, wingless hover with a spin-ring on the tatter channel), cruise
   altitude baked into the geometry (`spec.flyY` — hit boxes fly too), and spiral-crash
-  deaths in the shooter.
+  deaths in the shooter. The dragon series adds the long-neck/long-tail/membrane-wing
+  body plan on the same contract (wings on the extended ARM2 slots, chained tatter
+  pivots for tails).
 - **Horde instancing pipeline**: bake any species rig into one geometry per material and
   render hundreds of animated instances at a fixed draw-call budget — 300 mixed monsters
   in ~40–60 draw calls, independent of headcount.
@@ -33,6 +35,8 @@ no texture files, no build step — plain ES modules with a single peer dependen
 | All 15 species, silhouette check | 300 monsters, one batch per species |
 | ![Flyer lineup](docs/screenshots/fly_lineup.png) | ![Flyer horde](docs/screenshots/fly_horde.png) |
 | 4 flyers airborne (shadows below) | mix_fly horde at cruise altitude |
+| ![Dragon lineup](docs/screenshots/dragon_lineup.png) | ![Dragon horde](docs/screenshots/dragon_horde.png) |
+| 4 dragons (sprite/earth/frost/draco) | mix_dragon horde |
 | ![Gun pal gallery](docs/screenshots/gunpals_gallery.png) | ![First-person hold](docs/screenshots/gunpals_firstperson.png) |
 | Gun pal gallery | First-person hold (stagbite) |
 | ![Overheat state](docs/screenshots/gunpals_overheat.png) | ![Dismemberment & ragdoll](docs/screenshots/dismember_ragdoll.png) |
@@ -84,7 +88,7 @@ Or serve the repository root over HTTP (`python -m http.server`) and open `examp
 | Page | What it shows | Test hook |
 |------|---------------|-----------|
 | `examples/single.html` | Single monster viewer: species switcher, attack/stagger triggers, hit-volume overlay (`?vol=1`) | `window.__pmtk` |
-| `examples/lineup.html` | All 15 species side by side — silhouette readability check | `window.__pmtk` |
+| `examples/lineup.html` | All 19 species side by side — silhouette readability check | `window.__pmtk` |
 | `examples/horde.html` | Horde instancing: mixes & single species, 24–600 instances, `?lod=0` / `?cull=0` A/B toggles | `window.__horde` |
 | `examples/shooter.html` | FPS hitscan playground: OBB part hits, dismemberment, ragdolls, blood pools | `window.__shooter` |
 | `examples/gunpals.html` | Gun pal gallery + first-person hold (keys 1–5, I/A/F/O states) | `window.__pmtk` |
@@ -134,11 +138,12 @@ draw calls and texture writes, not fps. Single monster ≈ 1.2k triangles, 14 jo
 |----------|-----------|
 | Naive reference (per-actor `Group`s), 100 monsters | 1803 |
 | Instanced single species, 100 / 300 / 600 monsters | **8** (6 material groups + ground + grid) |
-| Species lineup, all 15 species walking side by side | **278** calls / 19.4k tris total |
+| Species lineup, all 19 species walking side by side | **379** calls / 26.0k tris total |
 | Mixed horde, 7 zombie species × 300 | **43** |
 | Mixed horde, 4 robot species × 300 | **25** |
 | Flyer horde, 4 flyer species × 300 (`mix_fly`) | **25** |
-| Mixed horde, all 14 mix species × 300 | **84** |
+| Dragon horde, 4 dragon species × 300 (`mix_dragon`) | **23** |
+| Mixed horde, all 18 mix species × 300 | **105** |
 | Shooter (horde + viewmodel + blood/decal pools), 300 | **42** (peak ≤ 48 with debris + ragdolls) |
 | Distance-tiered LOD animation | 115/300 joint-texture rows written at default camera; 0/300 from 55 m |
 | 2×2 grid frustum culling (camera facing away) | 228 → **55** calls, 390k → 89k tris |

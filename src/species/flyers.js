@@ -55,7 +55,7 @@ function mkActorTools(mats, actor) {
 
 /** 接触影：见 flyBlob。镜像工具：+x 单侧几何 → -x 镜像（顶点/法线取反 +
  * 逐三角形交换 v1/v2 翻回绕向，负 scale 会让面片背对相机，不能用）。 */
-function mirrorX(src) {
+export function mirrorX(src) {
   const g = src.clone();
   const pa = g.attributes.position.array, na = g.attributes.normal.array, ua = g.attributes.uv.array;
   for (let i = 0; i < pa.length; i += 3) { pa[i] = -pa[i]; na[i] = -na[i]; }
@@ -70,6 +70,9 @@ function mirrorX(src) {
   }
   return g;
 }
+
+// dragons.js 复用（导出不影响本文件内部引用）
+export { mkActorTools, flyBlob };
 
 /** 飞行种接触影：贴地 y≈0 不动，随 flyY 放大并变淡（克隆共享 MAT，不动 core）。 */
 function flyBlob(spec, baseR) {

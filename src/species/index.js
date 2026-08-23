@@ -18,6 +18,7 @@ import { CRAWLER_TRUE } from './crawler_true.js';
 import { MAGGOT } from './maggot.js';
 import { createRobot, TICKBOT, SPIDERBOT, CENTAURBOT, TITAN } from './robots.js';
 import { CARRION, MOTH, HORNET, HOVERDRONE } from './flyers.js';
+import { SPRITE, EARTH, FROST, DRACO } from './dragons.js';
 
 export const SPECIES = {
   zombie:     { spec: ZOMBIE,              factory: createZombie },
@@ -35,4 +36,8 @@ export const SPECIES = {
   moth:       { spec: MOTH,                factory: createZombieEx },  // 瘟蛾：四翼（ARM2 扩展位）扑棱
   hornet:     { spec: HORNET,              factory: createZombieEx },  // 毒蜂：高频小振幅
   hoverdrone: { spec: HOVERDRONE,          factory: createRobot },     // 浮游机：无翼悬浮 + 自旋环（破布槽）
+  sprite:     { spec: SPRITE,              factory: createZombieEx },  // 龙系列（dragons.js）：精灵龙，飘带
+  earth:      { spec: EARTH,               factory: createZombieEx },  // 土龙：葫芦胖身 + 小翼
+  frost:      { spec: FROST,               factory: createZombieEx },  // 冰龙：骨架 + 烂翼膜
+  draco:      { spec: DRACO,               factory: createZombieEx },  // 黑红大龙：王座三角，翼展 3m+
 };
