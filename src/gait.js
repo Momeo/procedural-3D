@@ -229,6 +229,8 @@ export function fillJoints(d, row, width, prm, spec, stepSpan, dt) {
   if (spec.gait.kind === 'centaur') return fillCentaurJoints(d, row, width, prm, spec, stepSpan, dt);
   // 无腿蠕动（species/maggot.js）：无四肢有机种，躯干链正弦波推进
   if (spec.gait.kind === 'slug') return fillSlugJoints(d, row, width, prm, spec, stepSpan, dt);
+  // 飞行物种（species/flyers.js）：翅膀拍动 + 悬浮 bob/weave（hoverdrone  flapAmp=0 走悬浮支）
+  if (spec.gait.kind === 'fly') return fillFlyJoints(d, row, width, prm, spec, stepSpan, dt);
   // 断双腿的人形：切缺腿爬行（逐实例数据驱动，公式见 fillLeglessCrawl）
   if (prm.crawl) return fillLeglessCrawl(d, row, width, prm, spec, stepSpan, dt);
   const g = spec.gait;
@@ -746,6 +748,96 @@ export function fillSlugJoints(d, row, width, prm, spec, stepSpan, dt) {
   q(J.HIPS, hipsX, 0, act.roll * 0.5);
   q(J.TORSO, torsoX, Math.sin(p - lag * 0.5) * g.swayYaw * drive, act.roll * 1.1);
   q(J.NECK, neckX, Math.sin(p * 0.47) * g.headScan, 0);
+}
+
+/**
+ * 飞行物种（species/flyers.js：carrion/moth/hornet/hoverdrone）的关节填充：
+ * 公式逐行对应 animateFlyer。
+ *
+ * 时钟：飞行种 rig 不声明 stepSpan，stepRate 走 (0.8+speed·gait.rate)·gjStride
+ * 常量支（tickbot 同款兜底）——各物种 gait.rate 已按「巡航速度下相位角速度
+ * ≈ flapRate·TAU」调好，相位 p 即拍翅相位；bob/weave 频率按与拍频的比值换算
+ * （fly.flapRate=0 的悬浮种取 clockHz=0.9 兜底，全程无除零/NaN）。
+ *
+ * 翅膀 = 肩/肘两节正弦拍动：第 0 对翼走 SH/EL 槽（8-11），第 1 对走 ARM2/EL2
+ * 槽（20-23）；翼尖（肘）相位滞后翼根（肩）fly.tipLag 弧度（~0.3 拍），折叠
+ * 量随振幅缩放（大振幅时肘部有折叠感）。flapAmp=0（hoverdrone）整翼通道静默。
+ * 身体：bob（y 正弦）+ 前进俯仰 fly.pitch + weave 横摆（roll/yaw 双通道读
+ * 「横移摇晃」）；双腿垂落微摆（无步态周期，fly.legs 种才写）；头微抬。
+ * 攻击 = windup 仰身张翼 → strike 前扑下压 + 高度下扎；受击趔趄折进 HIPS/TORSO。
+ * 破布槽双用途：tspec.spin（proportions.tatters[i].spin）= 自旋环通道
+ * （hoverdrone 稳定环，yaw = p·spin 连续自旋，不占注册关节）；否则烂翼膜抖动。
+ */
+export function fillFlyJoints(d, row, width, prm, spec, stepSpan, dt) {
+  const g = spec.gait;
+  const fly = g.fly || {};
+  prm.phase += dt * stepRate(spec, stepSpan, prm.scale, prm.gjStride, prm.speed);
+  const p = prm.phase;
+  const drive = Math.min(1, prm.speed / spec.speed);
+  const flapDrive = 0.55 + 0.45 * drive;     // 悬停（speed=0）也保持过半振幅
+  const act = advanceActions(prm, spec, dt);
+  const clockHz = fly.flapRate || 0.9;       // flapRate=0（悬浮种）的时钟兜底
+  const bobP = p * (fly.bobRate || 1) / clockHz;
+
+  const base = row * width * 4;
+  d[base] = Math.sin(bobP) * (fly.bobAmp || 0)
+    + act.wu * 0.05 - (act.stk > 0 ? (1 - act.stk) * 0.12 : 0) - act.stg * 0.05;
+  d[base + 1] = prm.flash;
+  d[base + 2] = prm.severMask || 0;
+
+  const q = (id, x, y, z) => writeQuatXYZ(d, base + id * 4, x, y, z);
+
+  // 翅膀拍动（flapAmp=0 或该物种无此对翼时静默，不写列）
+  const WINGS = [
+    { S: J.SH_L, E: J.EL_L, side: -1, pair: 0 },
+    { S: J.SH_R, E: J.EL_R, side: 1, pair: 0 },
+    { S: J.ARM2_L, E: J.EL2_L, side: -1, pair: 1 },
+    { S: J.ARM2_R, E: J.EL2_R, side: 1, pair: 1 },
+  ];
+  const nPairs = fly.wingPairs || 0;
+  const amp = (fly.flapAmp || 0) * flapDrive;
+  for (const { S, E, side, pair } of WINGS) {
+    if (pair >= nPairs || amp === 0) continue;
+    const lag = pair * (fly.pairLag ?? 0.9);
+    let shZ = side * ((fly.dihedral || 0) + Math.sin(p - lag) * amp);
+    const elZ = side * Math.sin(p - lag - (fly.tipLag ?? 1.9)) * amp * (fly.tipFold ?? 0.55);
+    if (act.wu > 0) shZ += side * act.wu * 0.5;            // 仰身张翼蓄力
+    else if (act.stk > 0) shZ -= side * (1 - act.stk) * 0.6;  // 扑翼下压
+    q(S, 0, 0, shZ);
+    q(E, 0, 0, elZ);
+  }
+
+  // 双腿（fly.legs 种：carrion 垂爪）——垂落微摆，无步态周期
+  if (fly.legs) {
+    for (let li = 0; li < 2; li++) {
+      const off = li === 0 ? 0 : Math.PI;
+      q(li === 0 ? J.HIP_L : J.HIP_R,
+        fly.legDangle + Math.sin(bobP * 0.5 + off) * 0.06, 0, 0);
+      q(li === 0 ? J.KNEE_L : J.KNEE_R,
+        fly.legBend + Math.sin(bobP * 0.4 + off) * 0.05, 0, 0);
+    }
+  }
+
+  // 身体：前进俯仰 + weave 横摆；受击趔趄折进 HIPS/TORSO，落点抽动打头
+  const wv = fly.weave || 0;
+  let torsoX = (fly.pitch || 0) + Math.sin(bobP * 0.5) * 0.03 * drive;
+  if (act.wu > 0) torsoX -= act.wu * 0.35;                // 仰身
+  else if (act.stk > 0) torsoX += (1 - act.stk) * 0.45;   // 前扑下压
+  torsoX += act.pitch * 1.2;
+  q(J.HIPS, act.pitch * 0.5, Math.sin(p * 0.31) * wv * 0.8, act.roll * 0.5);
+  q(J.TORSO, torsoX, Math.sin(p * 0.23) * wv * 0.6,
+    Math.sin(bobP) * wv + act.roll * 1.2);
+  q(J.NECK, (fly.headUp ?? -0.15) + act.hk * 0.45,
+    Math.sin(p * 0.47) * (fly.headScan ?? 0.3), 0);
+
+  // 破布槽：spin = 自旋环（hoverdrone）；其余 = 烂翼膜/触须抖动
+  prm.tatters.forEach((t, i) => {
+    const tspec = (spec.proportions.tatters || [])[i] || {};
+    if (tspec.spin) { q(J.TATTER + i, 0, p * tspec.spin, 0); return; }
+    const lag = Math.sin(p * 0.5 - 0.8 + t.phase) * t.swing;
+    q(J.TATTER + i, lag * 0.25 + (spec.proportions.tatterRest || 0),
+      t.yaw, t.restZ + Math.sin(p * 0.35 + t.phase) * 0.18);
+  });
 }
 
 // --- 缺腿爬行（人形断双腿后的逐实例步态） -------------------------------------// 腿几何已被断肢掩码隐藏（膝/髋 bit），这里把躯干趴平贴地 + 双臂对角扒地 +

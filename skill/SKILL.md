@@ -25,6 +25,8 @@ the horde, and is fully hittable/dismemberable.
    - quadruped / prone → `src/species/crawler_true.js` (custom rig, humanoid-contract skeleton)
    - multi-limb robot → `src/species/robots.js` (spiderbot = 6 legs, centaurbot = 4 legs + 4 arms)
    - limbless organic → `src/species/maggot.js` (lathe/ellipsoid/cyl only, slug gait)
+   - flying → `src/species/flyers.js` (carrion = single wing pair, moth/hornet = two
+     wing pairs on the ARM2 slots, hoverdrone = wingless hover + spin ring)
 3. **Write the spec tables** (contracts below). Respect the iron rule
    `hipY = thighL + shinL` or the feet float.
 4. **Textures** (optional): follow the wraps.js/zombie.js canvas paradigm — draw albedo
@@ -67,7 +69,9 @@ the humanoid contract — `{group, body, hips, torso, neck, legs[{hip,knee}],
 arms[{shoulder,elbow}], tatters, blob, stepSpan}`, with every registered joint's
 rotation assigned by the animation every frame — then bake/horde/hitvol accept it
 unchanged. `rig.legs[2..5]` / `rig.arms[2..3]` are picked up into extended joint slots
-12–23 (gait dispatch via `spec.gait.kind`: `'spider'` / `'centaur'` / `'slug'`).
+12–23 (gait dispatch via `spec.gait.kind`: `'spider'` / `'centaur'` / `'slug'` / `'fly'`).
+Flyers put their cruise altitude in `spec.flyY` (baked into the geometry, hit boxes
+included) and their wing/flap parameters in `spec.gait.fly`.
 
 ## Pitfalls that have bitten (check before debugging)
 
@@ -88,6 +92,47 @@ unchanged. `rig.legs[2..5]` / `rig.arms[2..3]` are picked up into extended joint
   factories derive per-instance seeds from the species id).
 - **New material slot = +1 draw call per species in the horde**: decorations go into the
   existing six slots; keep one monster at ~1–2.5k triangles.
+
+## Quality gates (anyCreature workflow)
+
+A species is not done when the probes are green — it is done when it passes three gates.
+Evidence is kept for every round.
+
+1. **Machine gate (hard floor)** — `tools/quality.html` driven by `tools/_probe_quality.py`
+   (run inside `tools/`, with a static server on `:8622` from the repo root):
+   `python _probe_quality.py`. It validates every registered species (zero **BLOCK**:
+   `hipY = thighL + shinL`, `jointCount ≤ 32`, palette keys present, head hit box exists
+   and is not buried inside the torso/hips box, `tri ≤ 2500`) and renders four silhouette
+   views (front/side/45°/top) with 24×24 thumbnails, guarding them against
+   `tools/_quality_baseline.json` at **IoU ≥ 0.85**. First run creates the whole
+   baseline (normal). Later IoU in [0.85, 1) auto-updates with a WARNING — a drifting
+   silhouette needs a human ack. A reshape round deliberately drops IoU below 0.85:
+   confirm it explicitly with `python _probe_quality.py --accept <id1,id2>` (the FAIL
+   stands without the flag — the regression guard never relaxes itself).
+2. **Gate 1 RECOGNISED** — feed `_shots/quality_<id>.png` (four views + 24 px
+   thumbnails, unlabeled) to a **fresh context-free reviewer** (no design intent, no
+   species name) and ask only "what creature is this?". Record the answers verbatim per
+   view. All four views must be recognised; one miss sends you back to silhouette
+   design — never argue the reviewer into being right.
+3. **Gate 2 PUNCHIER** (from the second reshape round on) — show old vs new silhouette
+   grids side by side to a context-free reviewer and ask "which is bolder / more
+   readable?". Only bolder is allowed; if the reshape went tame, roll back.
+4. **Two strikes and you redesign**: the same symptom (same unrecognised view, same
+   BLOCK) failing twice → drop the concept and restart. No third micro-tweak.
+5. **Delivery ledger** — end every delivery with one line:
+   `gates: <ID> pass@r<round> PUNCH pass@r<round> | restarts: <n> | unresolved: <items>`.
+
+Silhouette-tooling notes:
+
+- **Blind-review grids carry no names**: `_probe_quality.py` always loads
+  `quality.html?noname=1` so the species name never enters the pixels (filenames still
+  carry it — strip them when handing images to a reviewer).
+- **Winged flyers are pinned to top-of-flap**: their silhouette pose is fixed at
+  `sin(flap phase) = +1` (wings fully raised). Without the pin, any geometry edit
+  shifts the factory seed stream and you end up comparing animation phases instead of
+  geometry (this actually happened: vulture r1 vs r2).
+- Flyer thumbnails are cropped to the mask bounding box, so a wide wingspan does not
+  shrink the 24 px silhouette to noise.
 
 ## Budgets & acceptance numbers
 

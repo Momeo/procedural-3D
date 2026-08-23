@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>ProceduralMonsterToolkit — 质检（spec 校验 + 剪影指标）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{margin:0;background:#101210;color:#ddd8c8;font:13px/1.45 system-ui,sans-serif}
+  #panel{background:#141812f2;padding:10px 12px;border-bottom:1px solid #2a3020;max-height:46vh;overflow:auto}
+  #panel small{color:#9aa088}
+  .blk{color:#ff7a6a}.wrn{color:#e8c85a}.inf{color:#8a9078}.ok{color:#7fd98f}
+  #grid{padding:10px 12px}
+  .sp{margin:0 0 18px;padding:10px;background:#141812;border-radius:6px;display:inline-block}
+  .sp h3{margin:0 0 8px;font-size:14px}
+  .sp h3 small{color:#9aa088;font-weight:normal}
+  .views{display:flex;gap:10px}
+  figure{margin:0;text-align:center}
+  figure canvas{display:block;background:#000;border:1px solid #2a3020}
+  figure figcaption{color:#9aa088;font-size:12px;margin:3px 0}
+  canvas.thumb{width:96px;height:96px;image-rendering:pixelated;margin:0 auto}
+  #err{position:fixed;left:10px;bottom:10px;color:#ff7a6a;white-space:pre;z-index:3;font:12px monospace}
+</style>
+</head>
+<body>
+<div id="panel">
+  <b>质检台 — 全部物种：spec 校验（BLOCK/warn/info）+ 四视角剪影指标（IoU 回归守卫）</b><br>
+  <small>BLOCK 停线 / warn 人工判断 / info 数值。baseline 缺失的物种首轮全量收录（_quality_baseline.json 由探针落盘）。</small>
+  <div id="lines">构建中…</div>
+</div>
+<div id="grid"></div>
+<div id="err"></div>
+
+<script type="importmap">{"imports":{"three":"../examples/vendor/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { SPECIES } from '../src/species/index.js';
+import { bakeMummy, MAX_JOINTS } from '../src/bake.js';
+
+addEventListener('error', e => { document.getElementById('err').textContent = 'ERR: ' + e.message; });
+addEventListener('unhandledrejection', e => { document.getElementById('err').textContent = 'ERR: ' + (e.reason && e.reason.message || e.reason); });
+
+const q = new URLSearchParams(location.search);
+const ids = q.get('species')
+  ? q.get('species').split(',').filter(s => SPECIES[s])
+  : Object.keys(SPECIES);
+// ?noname=1：四视图拼图不印物种名（盲评门禁用图防剧透；_probe_quality 恒带）
+const NONAME = q.get('noname') === '1';
+
+// --- 渲染器与场景（纯色高对比底：任何 palette 都不含品红，角像素当 bg 参照） ------
+const S = 240;                 // 剪影渲染分辨率（24 缩略图 × 10px/格，整除）
+const THUMB = 24;
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setSize(4, 4);        // 主 canvas 不使用，全部走 RenderTarget + readPixels
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.domElement.style.display = 'none';
+document.body.appendChild(renderer.domElement);
+const rt = new THREE.WebGLRenderTarget(S, S, { samples: 0 });  // 无 MSAA：逐比特确定性
+const pxBuf = new Uint8Array(S * S * 4);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xff00ff);
+{
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 32);
+  grad.addColorStop(0, '#9fb8d0'); grad.addColorStop(0.5, '#5c6152'); grad.addColorStop(1, '#1c1a14');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  scene.environment = tex;
+}
+scene.add(new THREE.HemisphereLight(0xfff2dd, 0x2e3226, 1.1));
+const sun = new THREE.DirectionalLight(0xffe8c0, 2.2); sun.position.set(3, 6, 4); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x88a0c0, 0.6); fill.position.set(-4, 3, -3); scene.add(fill);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 200);
+
+// --- baseline（404 = 首跑，全量新建） ---------------------------------------------
+let baseline = {};
+try {
+  const r = await fetch('./_quality_baseline.json');
+  if (r.ok) baseline = (await r.json()).species || {};
+} catch (_) { /* 无文件即首跑 */ }
+
+// --- 工具 -------------------------------------------------------------------------
+const volOf = h => Math.max(0, h.max[0] - h.min[0]) * Math.max(0, h.max[1] - h.min[1]) * Math.max(0, h.max[2] - h.min[2]);
+const r4 = v => Math.round(v * 1e4) / 1e4;
+
+/** 渲染当前 scene 到 RT 并读回像素，算 bg 距离 mask（图像行序，上=0）。 */
+function renderMask() {
+  renderer.setRenderTarget(rt);
+  renderer.render(scene, camera);
+  renderer.readRenderTargetPixels(rt, 0, 0, S, S, pxBuf);
+  renderer.setRenderTarget(null);
+  const bg = [pxBuf[0], pxBuf[1], pxBuf[2]];   // GL 左下角，纯色底处处相同
+  const mask = new Uint8Array(S * S);
+  for (let y = 0; y < S; y++) {
+    const glRow = (S - 1 - y) * S * 4;         // GL 行序翻转成图像行序
+    for (let x = 0; x < S; x++) {
+      const o = glRow + x * 4;
+      const d = Math.abs(pxBuf[o] - bg[0]) + Math.abs(pxBuf[o + 1] - bg[1]) + Math.abs(pxBuf[o + 2] - bg[2]);
+      mask[y * S + x] = d > 36 ? 1 : 0;
+    }
+  }
+  return mask;
+}
+
+/** mask 指标：宽高比 / 填充率 / 质量三分比（bbox 上中下）/ 轮廓转折数（逐行左右缘方向变化）。
+ *  返回里带 bbox（飞行种缩略图收紧取景用）。 */
+function analyze(mask) {
+  let minX = S, minY = S, maxX = -1, maxY = -1, area = 0;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    if (!mask[y * S + x]) continue;
+    area++;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  if (!area) return { aspect: 0, fill: 0, thirds: [0, 0, 0], turns: 0, area: 0, bbox: null };
+  const bw = maxX - minX + 1, bh = maxY - minY + 1;
+  const thirds = [0, 0, 0];
+  for (let y = minY; y <= maxY; y++) {
+    const band = Math.min(2, ((y - minY) * 3 / bh) | 0);
+    for (let x = minX; x <= maxX; x++) if (mask[y * S + x]) thirds[band]++;
+  }
+  // 轮廓转折：逐行取 mask 最左/最右列，列位置移动方向变号计数（左右缘分别计后求和；
+  // 空行跳过，保持前后行连续）。头-肩-腰-腿每个外扩/内收节奏都会被数到。
+  let turns = 0;
+  for (const edge of ['l', 'r']) {
+    let prevX = null, prevS = 0;
+    for (let y = minY; y <= maxY; y++) {
+      let l = -1, r = -1;
+      for (let x = 0; x < S; x++) if (mask[y * S + x]) { if (l < 0) l = x; r = x; }
+      if (l < 0) continue;
+      const cur = edge === 'l' ? l : r;
+      if (prevX !== null) {
+        const s = Math.sign(cur - prevX);
+        if (s !== 0) { if (prevS !== 0 && s !== prevS) turns++; prevS = s; }
+      }
+      prevX = cur;
+    }
+  }
+  return {
+    aspect: r4(bw / bh), fill: r4(area / (bw * bh)),
+    thirds: thirds.map(v => r4(v / area)), turns, area,
+    bbox: [minX, minY, maxX, maxY],
+  };
+}
+
+/** 240 mask → 24×24 缩略图位串（覆盖率 ≥0.4 记 1），IoU 回归守卫用。
+ *  region 省略 = 整帧 10×10 格；给 bbox（飞行种）= 收紧到 mask bbox 采样
+ *  （翼展把整帧撑大后缩略图信息全丢的修复：小图里剪影占比最大化）。 */
+function thumbOf(mask, region) {
+  const x0 = region ? region[0] : 0, y0 = region ? region[1] : 0;
+  const w = region ? region[2] - region[0] + 1 : S;
+  const h = region ? region[3] - region[1] + 1 : S;
+  let out = '';
+  for (let ty = 0; ty < THUMB; ty++) for (let tx = 0; tx < THUMB; tx++) {
+    const xa = Math.floor(x0 + tx * w / THUMB), xb = Math.floor(x0 + (tx + 1) * w / THUMB);
+    const ya = Math.floor(y0 + ty * h / THUMB), yb = Math.floor(y0 + (ty + 1) * h / THUMB);
+    let n = 0, tot = 0;
+    for (let y = ya; y < yb; y++) for (let x = xa; x < xb; x++) { n += mask[y * S + x]; tot++; }
+    out += tot > 0 && n >= tot * 0.4 ? '1' : '0';
+  }
+  return out;
+}
+
+function iou(a, b) {
+  let inter = 0, union = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === '1' && b[i] === '1') inter++;
+    if (a[i] === '1' || b[i] === '1') union++;
+  }
+  return union ? inter / union : 1;
+}
+
+function drawView(canvas) {
+  canvas.width = S; canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  for (let y = 0; y < S; y++) {
+    const src = (S - 1 - y) * S * 4;
+    img.data.set(pxBuf.subarray(src, src + S * 4), y * S * 4);
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function drawThumb(canvas, bits) {
+  canvas.width = THUMB; canvas.height = THUMB;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(THUMB, THUMB);
+  for (let i = 0; i < bits.length; i++) {
+    const v = bits[i] === '1' ? 0 : 255;      // 黑剪影 / 白底
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+// --- 视角表：正 / 侧 / 45° / 顶（顶视 up=-Z，头朝向画面下方时剪影读法与正/侧一致） ----
+const VIEWS = [
+  ['front', '正', (c, d) => { camera.up.set(0, 1, 0); camera.position.set(c[0], c[1], c[2] + d); }],
+  ['side',  '侧', (c, d) => { camera.up.set(0, 1, 0); camera.position.set(c[0] + d, c[1], c[2]); }],
+  ['diag45','45°',(c, d) => { camera.up.set(0, 1, 0); camera.position.set(c[0] + d * Math.SQRT1_2, c[1], c[2] + d * Math.SQRT1_2); }],
+  ['top',   '顶', (c, d) => { camera.up.set(0, 0, -1); camera.position.set(c[0], c[1] + d, c[2]); }],
+];
+
+// --- 主流程 ------------------------------------------------------------------------
+const results = {};
+const newBaseline = {};
+const failedEntries = {};
+const linesEl = document.getElementById('lines');
+const gridEl = document.getElementById('grid');
+const line = (cls, txt) => {
+  const d = document.createElement('div');
+  d.className = cls; d.textContent = txt;
+  linesEl.appendChild(d);
+};
+
+for (const id of ids) {
+  const { spec, factory } = SPECIES[id];
+  const blocks = [], warns = [], infos = [], fails = [];
+
+  // 构建（index 0：确定性锚点）。确定性不由「同页两次构建」验收——core 有模块级
+  // 几何缓存（variants.js VENT Map 等），首建吃种子流、次建命中缓存，同页必发散；
+  // 既定契约是「跨页面加载同 seed 逐比特一致」（_probe_seed.py），本页的跨轮次
+  // 剪影 IoU baseline（跨加载）+ 探针的顶层 Math.random 静态检查是这里的两条护栏。
+  const actor = factory(spec, 0);
+  const baked = bakeMummy(factory, spec);
+  const P = spec.proportions || {};
+
+  // 1) 人形铁律：hipY = thighL + shinL。仅当三字段齐全才判——直立人形系；
+  //    有 thighL/shinL 但无 hipY 的是非常规体态（crawler 贴地 / tickbot、spiderbot、
+  //    centaurbot 体高走 rideHeight 等非 hipY 驱动），跳过报 info。
+  if (P.thighL != null && P.shinL != null && P.hipY != null) {
+    if (Math.abs(P.hipY - (P.thighL + P.shinL)) > 1e-6)
+      blocks.push(`BLOCK: hipY=${P.hipY} ≠ thighL+shinL=${r4(P.thighL + P.shinL)}（人形铁律，脚离地/陷地）`);
+  } else infos.push('info: 非直立人形（thighL/shinL/hipY 不齐），hipY 铁律跳过');
+
+  // 2) 烘焙关节数上限
+  if (baked.jointCount > MAX_JOINTS)
+    blocks.push(`BLOCK: jointCount=${baked.jointCount} > ${MAX_JOINTS}（纹理宽/常量表容量）`);
+
+  // 3) palette 必需键
+  for (const k of ['wrap', 'wrapDark', 'deep', 'eye'])
+    if (spec.palette?.[k] == null) blocks.push(`BLOCK: palette 缺 ${k}`);
+  for (const k of ['accent', 'tatter'])
+    if (spec.palette?.[k] == null) infos.push(`info: palette 缺可选槽 ${k}`);
+
+  // 4) hitboxes：非空 + 必须有头盒
+  const hbs = baked.hitboxes || [];
+  if (!hbs.length) blocks.push('BLOCK: hitboxes 为空（部位判定无从谈起）');
+  const heads = hbs.filter(h => h.part.includes('head'));
+  if (hbs.length && !heads.length)
+    blocks.push('BLOCK: 无 part 含 head 的碰撞盒（爆头判定缺失）');
+
+  // 5) 头盒心埋入 torso/hips 盒内部 ⇒ 爆头不可达。
+  //    判定逻辑：直立人形头在躯干正上方、爬行者头朝前探出躯干盒前缘——两种体态
+  //    头盒心都应落在 torso/hips 盒【外】；落进盒内部说明头被躯干几何包埋，
+  //    子弹先穿躯干才到头，head×3 永远打不出来。按实际盒关系判，与体态无关。
+  let headVol = 0, torsoVol = 0;
+  if (heads.length) {
+    const head = heads.reduce((a, b) => (volOf(b) > volOf(a) ? b : a));
+    headVol = volOf(head);
+    const c = [0, 1, 2].map(a => (head.min[a] + head.max[a]) / 2);
+    const EPS = 1e-3;
+    for (const h of hbs) {
+      if (h.part !== 'torso' && h.part !== 'hips') continue;
+      if (c.every((v, a) => v > h.min[a] + EPS && v < h.max[a] - EPS))
+        blocks.push(`BLOCK: 头盒心 (${c.map(v => v.toFixed(2))}) 埋进 ${h.part} 盒内部（爆头不可达）`);
+    }
+    const torso = hbs.find(h => h.part === 'torso');
+    if (torso) {
+      torsoVol = volOf(torso);
+      if (headVol > torsoVol * 0.8)
+        warns.push(`warn: 头盒体积 ${headVol.toFixed(3)} > 躯干盒 ${torsoVol.toFixed(3)}×0.8（疑似装饰件撑大头盒，检查 noHit）`);
+    } else infos.push('info: 无 torso 盒，头/躯干体积比跳过');
+  }
+
+  // 6) 三角面 / 材质组预算
+  const tri = actor.triangles;
+  if (tri > 2500) blocks.push(`BLOCK: tri=${tri} > 2500`);
+  else if (tri > 2000) warns.push(`warn: tri=${tri} > 2000`);
+  const parts = baked.parts.length;
+  if (parts > 7) warns.push(`warn: 材质组=${parts} > 7（怪海每物种 +1 draw call）`);
+
+  // --- 剪影指标 ------------------------------------------------------------------
+  const rig = actor.rig;
+  rig.group.scale.setScalar(actor.scale);
+  if (rig.blob) rig.blob.visible = false;      // 接触影不是剪影的一部分
+  scene.add(rig.group);
+  // 定姿：固定相位不推进（跨轮次剪影逐比特可复现）。
+  // 飞行有翼种（gait.kind==='fly' 且 wingPairs>0）：相位显式钉到抬翅顶点
+  // （sin(拍翅相位)=+1，翼尖最高的标准展示姿）——否则出厂相位由 withSeed 流
+  // 产生，任何几何/网格数编辑都会平移种子流消耗序列进而平移相位，盲评
+  // 实际在比「抬翅 vs 平翅」的动画相位而非几何（carrion/hornet r1↔r2 实证）。
+  // hoverdrone 无翼（wingPairs=0）不钉，保持出厂相位。
+  const flyG = spec.gait && spec.gait.kind === 'fly' ? (spec.gait.fly || {}) : null;
+  const pinPhase = !!(flyG && flyG.wingPairs > 0);
+  spec.animate(rig, spec, {
+    phase: pinPhase ? Math.PI / 2 : actor.st.phase, speed: spec.speed, windup: 0, strike: 0,
+    stagger: 0, staggerRoll: 0, staggerPitch: 0,
+    hit: 0, hitLX: 0, hitLY: 0.55, hitF: 0, hitS: 0, hitHead: 0,
+  });
+  rig.group.updateMatrixWorld(true);
+
+  // 包围球自动取景：hitboxes 并集（bind 模型空间 × actor.scale）外接球 + 边距
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const hb of hbs) for (let a = 0; a < 3; a++) {
+    mn[a] = Math.min(mn[a], hb.min[a] * actor.scale);
+    mx[a] = Math.max(mx[a], hb.max[a] * actor.scale);
+  }
+  const c = mn.map((v, a) => (v + mx[a]) / 2);
+  let radius = 0.01;
+  for (const x of [mn[0], mx[0]]) for (const y of [mn[1], mx[1]]) for (const z of [mn[2], mx[2]])
+    radius = Math.max(radius, Math.hypot(x - c[0], y - c[1], z - c[2]));
+  const dist = radius / Math.tan(camera.fov * Math.PI / 360) * 1.3;
+
+  const spDiv = document.createElement('div');
+  spDiv.className = 'sp'; spDiv.id = 'shot-' + id;
+  if (!NONAME) spDiv.innerHTML = `<h3>${id} <small>tri ${tri} · joints ${baked.jointCount} · 材质组 ${parts}</small></h3>`;
+  const viewsRow = document.createElement('div');
+  viewsRow.className = 'views';
+  spDiv.appendChild(viewsRow);
+
+  const base = baseline[id];
+  const views = {};
+  const entry = {};
+  for (const [vk, label, place] of VIEWS) {
+    place(c, dist);
+    camera.lookAt(c[0], c[1], c[2]);
+    camera.updateProjectionMatrix();
+    const mask = renderMask();
+    const m = analyze(mask);
+    // 飞行种缩略图收紧到 mask bbox（翼展撑大整帧后 24px 缩略图信息全丢的修复）
+    const bits = thumbOf(mask, flyG ? m.bbox : null);
+
+    const fig = document.createElement('figure');
+    const vc = document.createElement('canvas');
+    drawView(vc);
+    const tc = document.createElement('canvas');
+    tc.className = 'thumb';
+    drawThumb(tc, bits);
+    fig.appendChild(vc);
+    const cap = document.createElement('figcaption');
+    cap.textContent = label;
+    fig.appendChild(cap);
+    fig.appendChild(tc);
+    viewsRow.appendChild(fig);
+
+    let iouV = null;
+    if (base && base[vk]) {
+      iouV = r4(iou(bits, base[vk].mask));
+      if (iouV < 0.85) fails.push(`FAIL: ${label}视角剪影 IoU=${iouV} < 0.85（baseline 回归）`);
+    }
+    views[vk] = { aspect: m.aspect, fill: m.fill, thirds: m.thirds, turns: m.turns, iou: iouV };
+    entry[vk] = { mask: bits, aspect: m.aspect, fill: m.fill, thirds: m.thirds, turns: m.turns };
+  }
+  scene.remove(rig.group);
+  gridEl.appendChild(spDiv);
+
+  // baseline 收录：缺失 → 全量新建；有但 IoU<1（且未 FAIL）→ 更新（探针打 WARNING 请人确认）；
+  // IoU<0.85 的 FAIL 种不进 newBaseline（回归守卫），当前指标进 failed 表，
+  // 由探针 --accept 显式确认修型后才落盘（否则 FAIL 维持，防线不松）
+  if (!base) {
+    newBaseline[id] = entry;
+    infos.push('info: 无 baseline，本轮指标+mask 已收录（首轮全量新建）');
+  } else if (fails.length) {
+    failedEntries[id] = entry;
+  } else {
+    const drift = VIEWS.some(([vk]) => views[vk].iou !== null && views[vk].iou < 0.999);
+    if (drift) {
+      newBaseline[id] = entry;
+      infos.push('info: 剪影微漂移（IoU≥0.85 但 <1），baseline 随本轮更新（探针打 WARNING）');
+    }
+  }
+
+  results[id] = {
+    blocks, warns, infos, fails,
+    tri, joints: baked.jointCount, parts,
+    headVol: r4(headVol), torsoVol: r4(torsoVol),
+    baseline: base ? 'hit' : 'miss',
+    views,
+  };
+
+  // 面板行
+  line(blocks.length || fails.length ? 'blk' : warns.length ? 'wrn' : 'ok',
+    `${id} — tri ${tri} · joints ${baked.jointCount} · 材质组 ${parts} · baseline ${base ? 'hit' : 'miss'}`);
+  for (const b of blocks) line('blk', `  ${b}`);
+  for (const f of fails) line('blk', `  ${f}`);
+  for (const w of warns) line('wrn', `  ${w}`);
+  for (const i of infos) line('inf', `  ${i}`);
+}
+
+window.__quality = { ready: true, results, newBaseline, failed: failedEntries };
+</script>
+</body>
+</html>

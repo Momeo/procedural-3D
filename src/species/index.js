@@ -17,6 +17,7 @@ import {
 import { CRAWLER_TRUE } from './crawler_true.js';
 import { MAGGOT } from './maggot.js';
 import { createRobot, TICKBOT, SPIDERBOT, CENTAURBOT, TITAN } from './robots.js';
+import { CARRION, MOTH, HORNET, HOVERDRONE } from './flyers.js';
 
 export const SPECIES = {
   zombie:     { spec: ZOMBIE,              factory: createZombie },
@@ -30,4 +31,8 @@ export const SPECIES = {
   spiderbot:  { spec: SPIDERBOT,           factory: createRobot },     // 人形蜘蛛：六腿 LEG2/LEG3 扩展位
   centaurbot: { spec: CENTAURBOT,          factory: createRobot },     // 半人马：四腿 LEG2 + 四臂 ARM2
   titan:      { spec: TITAN,               factory: createRobot },     // 巨型人形（buildHumanoid 纯 spec）
+  carrion:    { spec: CARRION,             factory: createZombieEx },  // 飞行系列（flyers.js）：尸鹫，一对翼慢扇
+  moth:       { spec: MOTH,                factory: createZombieEx },  // 瘟蛾：四翼（ARM2 扩展位）扑棱
+  hornet:     { spec: HORNET,              factory: createZombieEx },  // 毒蜂：高频小振幅
+  hoverdrone: { spec: HOVERDRONE,          factory: createRobot },     // 浮游机：无翼悬浮 + 自旋环（破布槽）
 };

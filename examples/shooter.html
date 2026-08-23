@@ -64,7 +64,8 @@ const grid = makeCullGrid({ half: 20, cells: 2, margin: 3 });
 // zombie/runner/screecher/crawler/tickbot 爆头一枪死，bloater 两发爆头，brute 三发。
 // tickbot 26 = 四肢两连击（25）后剩 1 血——不然第二枪先致死，断肢永远触发不到。
 const HP = { zombie: 30, crawler: 20, runner: 24, screecher: 26, bloater: 80, brute: 160,
-  tickbot: 26, spiderbot: 42, centaurbot: 95, titan: 320, maggot: 20 };
+  tickbot: 26, spiderbot: 42, centaurbot: 95, titan: 320, maggot: 20,
+  carrion: 30, moth: 24, hornet: 16, hoverdrone: 46 };   // 飞行种：hornet 一枪、hoverdrone 两发爆头
 const BODY_DMG = 25;
 // 配比同 horde 丧尸海；?species=xxx 切单物种模式（探针/专项验收用，默认不动）
 const ONLY = SPECIES[q.get('species')] ? q.get('species') : null;
@@ -393,6 +394,7 @@ for (const b of batches) {
       cell: -1, cellSlot: i,            // 剔除网格（rebuildCells 填；CULL 关时恒 0/i）
       lodDt: 0, lodTier: 0,             // 距离分级（lod.js gater 填）
       hp: HP[b.id], dead: 0, fallDir: 1,
+      fallY: 0, fallV: 0,             // 飞行种死亡坠落：实例矩阵 y 偏移 / 下落速度
       ox: 0, oz: 0,                 // 受击击退瞬时位移（衰减）
       severMask: 0,                 // 断肢掩码（bit j = 关节 j 及下游隐藏）
       limbHits: { armL: 0, armR: 0, legL: 0, legR: 0 },   // 四肢累计受击（断肢触发）
@@ -728,6 +730,7 @@ function startDeath(b, i, head, dx, dy, dz, allowRag) {
   const st = b.states[i];
   st.dead = 0.0001;
   st.fallDir = random() < 0.5 ? 1 : -1;
+  st.fallY = 0; st.fallV = 0;                     // 飞行种：坠落起点 = 当前悬停位
   stats.kills++;
   if (head) severLimb(b, i, J.NECK, dx, dy, dz);     // 爆头致死 = 断头飞出
   bloodBurst(st.x, 1.0 * st.scale, st.z, 12, 1.6, 2.2);
@@ -744,6 +747,7 @@ function startDeath(b, i, head, dx, dy, dz, allowRag) {
 function respawn(b, i) {
   const st = b.states[i];
   st.dead = 0; st.hp = HP[b.id]; st.ox = st.oz = 0;
+  st.fallY = 0; st.fallV = 0;
   st.severMask = 0; st.params.severMask = 0; st.params.crawl = false;
   st.limbHits.armL = st.limbHits.armR = st.limbHits.legL = st.limbHits.legR = 0;
   st.speed = st.params.speed = st.baseSpeed;
@@ -858,7 +862,7 @@ window.__shooter = {
     const st = batches[batchIdx] && batches[batchIdx].states[instIdx];
     return st ? { x: st.x, z: st.z, heading: st.heading, scale: st.scale, dead: st.dead,
       severMask: st.severMask, ragSlot: st.ragSlot, crawl: !!st.params.crawl,
-      speed: st.speed } : null;
+      speed: st.speed, fallY: st.fallY } : null;
   },
   // 探针：出厂参数快照（init 是创建时刻副本，不受运行推进影响）
   snapshot() {
@@ -1069,6 +1073,29 @@ renderer.setAnimationLoop(() => {
           }
           continue;
         }
+        // 飞行种死亡（基础版）：失速螺旋下落（y 匀加速 + 绕 y 自旋 + 沿航向前滑，
+        // ~0.6s 落地）→ 落地后接现有倾倒流程（gait.kind='fly' 不进布娃娃）。
+        // 几何烘在 flyY 高度，落地 = 实例矩阵 y 下探 -flyY·scale；坠落期冻结死亡
+        // 时钟（st.dead 退回），落地后从 ~0 接倾倒计时。断翼（关节 <24）只走
+        // 外观，不触发坠机。
+        if (b.spec.gait.kind === 'fly') {
+          const groundY = -(b.spec.flyY || 0) * st.scale;
+          if (st.fallY > groundY) {
+            st.dead -= dt;                          // 冻结倾倒时钟
+            st.fallV += 10 * dt;                    // 失速匀加速
+            st.fallY = Math.max(groundY, st.fallY - st.fallV * dt);
+            st.heading += st.fallDir * 3.2 * dt;    // 绕 y 自旋
+            st.x += Math.sin(st.heading) * st.baseSpeed * 0.5 * dt;   // 前滑
+            st.z += Math.cos(st.heading) * st.baseSpeed * 0.5 * dt;
+            fillJoints(b.jointData, i, MAX_JOINTS, st.params, b.spec, b.baked.stepSpan, 0);
+            quat.setFromAxisAngle(YAXIS, st.heading);
+            posV.set(st.x, st.fallY, st.z);
+            sclV.setScalar(st.scale);
+            m4.compose(posV, quat, sclV);
+            writeInstMat(b, st);
+            continue;
+          }
+        }
         // 死亡流程（倾倒版）：冻结步态（dt=0 姿态定格不抽搐）→ 倒地 → 沉入 → 重生
         fillJoints(b.jointData, i, MAX_JOINTS, st.params, b.spec, b.baked.stepSpan, 0);
         const top = Math.min(1, st.dead / 0.4);
@@ -1082,7 +1109,7 @@ renderer.setAnimationLoop(() => {
         quat.setFromAxisAngle(YAXIS, st.heading);
         qTop.setFromAxisAngle(XAXIS, ang);
         quat.multiply(qTop);
-        posV.set(st.x, y, st.z);
+        posV.set(st.x, y + st.fallY, st.z);   // fallY：飞行种落地后的地偏（非飞行种恒 0）
         sclV.setScalar(s);
         m4.compose(posV, quat, sclV);
         writeInstMat(b, st);
