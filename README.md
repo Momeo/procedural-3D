@@ -2,6 +2,8 @@
 
 **Zero-asset, spec-driven procedural monsters — and living creature-weapons — for three.js.**
 
+**[▶ Live demos](https://momeo.github.io/procedural-3D/examples/)** — five interactive pages, no install, runs entirely in the browser.
+
 Everything is generated in code: geometry, textures, materials, animation. No model files,
 no texture files, no build step — plain ES modules with a single peer dependency (`three`).
 
@@ -69,7 +71,8 @@ scene.add(gun.group);
 
 ## Examples
 
-Serve the repository root over HTTP (`python -m http.server`) and open `examples/`
+Hosted online at **https://momeo.github.io/procedural-3D/examples/** (GitHub Pages, straight from this repo).
+Or serve the repository root over HTTP (`python -m http.server`) and open `examples/`
 — the landing page links all five demos.
 
 | Page | What it shows | Test hook |
