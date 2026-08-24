@@ -103,6 +103,45 @@ slowing to a hover (draco uses -0.20 / +0.32 for the looming Smaug pose).
 - **New material slot = +1 draw call per species in the horde**: decorations go into the
   existing six slots; keep one monster at ~1–2.5k triangles.
 
+## Surface detailing (decal-strip paradigm)
+
+Body markings (lava cracks, rock fissures, glow lines, membrane veins) are thin
+quad-strip decals hugging the surface — not canvas textures, not vertex colors.
+
+- **Why strips**: the bake/instancing merge keeps only position/normal/uv plus
+  the generated aJoint (see the bucketing merge in `src/bake.js`) — vertex
+  colors do not survive it, and per-primitive canvas UVs cannot pin a pattern
+  to a chosen body region. A new texture also costs a new material slot, and
+  slots are capped (horde draw calls = species × slots + 2). Strips ride the
+  existing slots and cost 2 triangles per segment (`quadStrips`).
+- **`surfaceStrips(seed, surf, specs)`** (`src/species/dragons.js`, a
+  generalisation of draco's `lavaCracks`): `surf(a, z) → { p, n }` supplies a
+  surface point and outward normal. Two factories cover the common cases:
+  `makeLatheSurf(mkRadiusFn(profile))` for lathe torsos (share the profile
+  table with the lathe call itself) and `makeEllipsoidSurf(center, radii)` for
+  ellipsoid bellies (normal = ellipsoid gradient). Angle convention: a = π/2
+  belly / 3π/2 back / 0 right / π left. Segment tangents come from finite
+  differences of successive surf samples, so any parameterisation works
+  without new tangent math. Each specs entry `[a0, z0, a1, z1, segN, w0, jit?]`
+  is one branch; `jit` defaults to 0.24 (angular crackle) — pass ~0.12 for
+  smooth flowing lines. Segments overlap ×1.15 so seams never gap; midpoints
+  lift 0.006 along the normal against z-fighting. Fixed-seed mulberry32, one
+  seed constant per marking; the geometry is cached and shared by all
+  instances (it does not consume the per-instance seed stream).
+- **Slot conventions**: emissive markings go to the `eye` slot with restraint
+  (sprite flow lines at eyeGlow 0.8; draco lava at 1.1 because it must show
+  through near-black scales); dark non-emissive markings go to the `deep` slot
+  (earth rock fissures). The dragon rig reads optional `crackMat` / `veinMat`
+  from the layout object (fresh per build, not cached with the geometry);
+  defaults are cracks→eye, veins→deep.
+- **Always `noHit`** on decal strips, and re-check the triangle budget after
+  adding markings (draco with full detailing: 2188 < 2500).
+- Readings to copy: lava cracks (`lavaCracks`, 3 main branches + 2 forks,
+  w0 ≈ 0.02), rock fissures (earth: ellipsoid surf, 3 mains + 3 forks,
+  w0 0.013–0.024), glow flow lines (sprite: lathe surf, w0 ≤ 0.010, jit 0.12),
+  membrane veins (`wingGeometry` `veinW` — veins are positioned from the same
+  parameters as the membrane boxes, so membrane edits drag the veins along).
+
 ## Quality gates (anyCreature workflow)
 
 A species is not done when the probes are green — it is done when it passes three gates.
@@ -143,6 +182,19 @@ Silhouette-tooling notes:
   geometry (this actually happened: vulture r1 vs r2).
 - Flyer thumbnails are cropped to the mask bounding box, so a wide wingspan does not
   shrink the 24 px silhouette to noise.
+
+Texture/recolour rounds (surface-only changes) add three checks on top of the gates:
+
+- Decal strips can widen the silhouette (e.g. wing-edge veins): an IoU dip is
+  expected — eyeball the new silhouette, then `--accept <ids>` (or review the
+  WARNING auto-accept). **Every other species must stay at zero drift**; drift
+  elsewhere means you touched something shared.
+- Gate 1 gets an extra close-up (near-camera shot in the single viewer) judging
+  "marking readable, not smeared" — a recognised silhouette does not prove the
+  texture reads.
+- Recolours: check the base map for hue contamination before tuning hex values
+  (the greenish fleshMaps multiplied both dragon recolours into olive in round
+  one — see Pitfalls, swap to `linenMaps()` first).
 
 ## Budgets & acceptance numbers
 

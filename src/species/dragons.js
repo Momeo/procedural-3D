@@ -150,6 +150,11 @@ function makeEllipsoidSurf(c, rad) {
   };
 }
 
+/** 通用贴面纹理游走器：surf(a,z) 给表面点+外法线，沿 (a,z) 折线游走铺
+ *  薄片条带。seed = 每种纹理一个独立常量（固定种子 mulberry32 确定性；
+ *  几何进 xxxGEO Map 缓存全实例共享，不吃 withSeed 实例种子流）。
+ *  specs 每条主枝/分枝一行：[起点 a,z, 终点 a,z, 段数, 根宽, 抖动?]。
+ *  返回几何经 G.cracks（躯干）或 veinW（翼膜）挂进 rig，装配一律 noHit。 */
 function surfaceStrips(seed, surf, specs) {
   const rnd = mulberry32(seed);
   const quads = [];
