@@ -19,11 +19,12 @@
 
 import * as THREE from 'three';
 import { parts, tornStrip } from '../core/anatomy.js';
-import { WRAP_TILES } from '../core/wraps.js';
+import { WRAP_TILES, linenMaps } from '../core/wraps.js';
 import { prims } from '../prims.js';
 import { mulberry32 } from '../rng.js';
 import { mirrorX, mkActorTools, flyBlob } from './flyers.js';
 import { animateFlyer } from './flyers.js';
+import { makeZombieMaterialsFrom } from './zombies_ex.js';
 
 // ---------------------------------------------------------------------------
 // 贴面薄片几何（draco 熔岩裂纹 / 翼膜脉络）：纯四边形条带，2 三角/段，
@@ -67,17 +68,20 @@ function quadStrips(quads) {
  *  P(a,z) = (r·cos a, -r·sin a, z)——a=π/2 腹 / a=3π/2 背 / a=0 右 / a=π 左。 */
 const DRACO_TORSO_R = [[0.001, -0.42], [0.10, -0.38], [0.17, -0.20], [0.20, 0.02],
   [0.18, 0.20], [0.12, 0.34], [0.001, 0.42]];
-function dracoTorsoR(z) {
-  const P = DRACO_TORSO_R;
-  if (z <= P[0][1]) return P[0][0];
-  for (let i = 0; i < P.length - 1; i++) {
-    if (z <= P[i + 1][1]) {
-      const t = (z - P[i][1]) / (P[i + 1][1] - P[i][1]);
-      return P[i][0] + (P[i + 1][0] - P[i][0]) * t;
+/** 半径表分段线性插值 → r(z)（lathe profile 同步表的通用读取器） */
+function mkRadiusFn(P) {
+  return (z) => {
+    if (z <= P[0][1]) return P[0][0];
+    for (let i = 0; i < P.length - 1; i++) {
+      if (z <= P[i + 1][1]) {
+        const t = (z - P[i][1]) / (P[i + 1][1] - P[i][1]);
+        return P[i][0] + (P[i + 1][0] - P[i][0]) * t;
+      }
     }
-  }
-  return P[P.length - 1][0];
+    return P[P.length - 1][0];
+  };
 }
+const dracoTorsoR = mkRadiusFn(DRACO_TORSO_R);
 
 /** 熔岩裂纹网：确定性种子流（mulberry32 固定种子，不吃 withSeed 实例流——
  *  几何走 DRACOGEO 缓存全实例共享）。主枝沿体轴游走 + 侧枝分叉，宽度渐细。 */
@@ -118,10 +122,68 @@ function lavaCracks(seed) {
 }
 
 // ---------------------------------------------------------------------------
+// 贴面纹理通用游走器（earth 龟裂 / sprite 流光）：lavaCracks 的泛化版——
+// surf(a,z) → { p:[3], n:[3] } 给表面点与外法线，切向改由相邻采样点差分
+// （通用于椭球截面；draco 的 lavaCracks 保持原特化实现不动）。
+// specs 条目：[a0, z0, a1, z1, segN, w0, jit?]——jit 缺省 0.24（皴裂感），
+// 流光细纹传小值（长流线不打折）。固定种子 mulberry32，几何缓存全实例共享。
+// ---------------------------------------------------------------------------
+
+/** lathe(rx=π/2) 圆截面躯干表面：P(a,z) = (r·cos a, -r·sin a, z) */
+function makeLatheSurf(rFn) {
+  return (a, z) => {
+    const r = rFn(z);
+    return { p: [r * Math.cos(a), -r * Math.sin(a), z], n: [Math.cos(a), -Math.sin(a), 0] };
+  };
+}
+
+/** 椭球截面躯干表面（earth 葫芦腹）：xy 截面椭圆 (rx,ry) 随 z 按 rz 收放，
+ *  a=π/2 → 腹底 / a=3π/2 → 背 / a=0 → 右 / a=π → 左；法线取椭球梯度。 */
+function makeEllipsoidSurf(c, rad) {
+  return (a, z) => {
+    const dz = (z - c[2]) / rad[2];
+    const s = Math.sqrt(Math.max(0.02, 1 - dz * dz));
+    const x = rad[0] * s * Math.cos(a), y = c[1] + rad[1] * s * Math.sin(a);
+    const nx = x / (rad[0] * rad[0]), ny = (y - c[1]) / (rad[1] * rad[1]), nz = (z - c[2]) / (rad[2] * rad[2]);
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    return { p: [x, y, z], n: [nx / nl, ny / nl, nz / nl] };
+  };
+}
+
+function surfaceStrips(seed, surf, specs) {
+  const rnd = mulberry32(seed);
+  const quads = [];
+  const branch = (a0, z0, a1, z1, segN, w0, jit = 0.24) => {
+    let a = a0, z = z0;
+    for (let i = 0; i < segN; i++) {
+      const t01 = (i + 1) / segN;
+      const na = a0 + (a1 - a0) * t01 + (rnd() - 0.5) * jit;
+      const nz = z0 + (z1 - z0) * t01 + (rnd() - 0.5) * 0.05;
+      const P0 = surf(a, z), P1 = surf(na, nz);
+      const dx = P1.p[0] - P0.p[0], dy = P1.p[1] - P0.p[1], dz = P1.p[2] - P0.p[2];
+      const len = Math.hypot(dx, dy, dz);
+      const m = surf((a + na) / 2, (z + nz) / 2);         // 段中点贴面定位
+      a = na; z = nz;
+      if (len < 1e-4) continue;
+      quads.push({
+        c: [m.p[0] + m.n[0] * 0.006, m.p[1] + m.n[1] * 0.006, m.p[2] + m.n[2] * 0.006],   // 浮出皮面防 z-fight
+        t: [dx / len, dy / len, dz / len],
+        n: m.n,
+        len: len * 1.15,                                  // 段间微重叠，缝线不断
+        w: w0 * (1 - t01 * 0.55) * (0.8 + rnd() * 0.4),
+      });
+    }
+  };
+  for (const s of specs) branch(...s);
+  return quadStrips(quads);
+}
+
+// ---------------------------------------------------------------------------
 // 共享：龙骨架装配（G 几何字典 + D 布局尺寸 → rig）
 // G: torso, neckSeg, skull, snout, horns, eyes, wingShBone, wingShMem?,
 //    wingElBone, wingElMem?, tailSeg[3], thigh, shin
-// D: { torsoW, torsoD, neckY, neckZ, wingY, wingSweep, legX, legZ, tailL[3], ragSpec? }
+// D: { torsoW, torsoD, neckY, neckZ, wingY, wingSweep, legX, legZ, tailL[3], ragSpec?,
+//      crackMat?, veinMat? } —— 材质选择走 D（每次 build 新字面量），不进几何缓存 G
 // ---------------------------------------------------------------------------
 
 function buildDragonRig(spec, mats, actor, G, D) {
@@ -153,7 +215,7 @@ function buildDragonRig(spec, mats, actor, G, D) {
   if (G.whiskers) add(neck, G.whiskers, mats.accent, 'head', true);   // 须（sprite）
   if (G.ribs) add(torso, G.ribs, mats.wrap, 'body');                  // 肋梁（frost）
   if (G.pelvis) add(torso, G.pelvis, mats.wrapDark, 'body');
-  if (G.cracks) add(torso, G.cracks, mats.eye, 'body', true);         // 熔岩裂纹薄片（draco，noHit）
+  if (G.cracks) add(torso, G.cracks, D.crackMat || mats.eye, 'body', true);   // 体表薄片（draco 熔岩裂纹/sprite 流光 = eye 槽，earth 龟裂 = deep 槽；noHit）
   if (G.spikes) add(torso, G.spikes, mats.wrapDark, 'body', true);    // 背脊刺列（draco，noHit 装饰件）
 
   // 膜翼一对 = arms[2]/[3]（ARM2/EL2 槽，bake 按下标注册：arms[2]=L / arms[3]=R；
@@ -185,13 +247,14 @@ function buildDragonRig(spec, mats, actor, G, D) {
     mountW.add(shoulder);
     add(shoulder, side > 0 ? G.wingShBone : G.wingShBoneL, mats.wrapDark, 'body');
     if (G.wingShMem) add(shoulder, side > 0 ? G.wingShMem : G.wingShMemL, mats.accent, 'body');
-    if (G.wingShVeins) add(shoulder, side > 0 ? G.wingShVeins : G.wingShVeinsL, mats.deep, 'body', true);   // 翼膜脉络 noHit（draco）
+    const veinMat = D.veinMat || mats.deep;      // 翼膜脉络/光纹：draco deep 槽 / sprite eye 槽
+    if (G.wingShVeins) add(shoulder, side > 0 ? G.wingShVeins : G.wingShVeinsL, veinMat, 'body', true);   // noHit
     const elbow = new THREE.Group();
     elbow.position.x = side * D.shLen;
     shoulder.add(elbow);
     add(elbow, side > 0 ? G.wingElBone : G.wingElBoneL, mats.wrapDark, 'body');
     if (G.wingElMem) add(elbow, side > 0 ? G.wingElMem : G.wingElMemL, mats.accent, 'body');
-    if (G.wingElVeins) add(elbow, side > 0 ? G.wingElVeins : G.wingElVeinsL, mats.deep, 'body', true);
+    if (G.wingElVeins) add(elbow, side > 0 ? G.wingElVeins : G.wingElVeinsL, veinMat, 'body', true);
     arms[side < 0 ? 2 : 3] = { shoulder, elbow, side };   // ARM2_L / ARM2_R
 
     // 烂翼膜（frost）：破布条挂翼肘，tatter 槽随翼拍动
@@ -300,10 +363,15 @@ function wingGeometry(T, cfg) {
 }
 
 // ---------------------------------------------------------------------------
-// 物种一：精灵龙 sprite —— 飘带（纤细流线 + 细尾，8Hz 小振幅，weave 大）
+// 物种一：精灵龙 sprite —— 飘带（纤细流线 + 细尾，8Hz 小振幅，weave 大；
+// 湖蓝皮 + 体表流光细纹/翼膜光纹 eye 发光槽薄片，亮度克制）
 // ---------------------------------------------------------------------------
 
 const SPRITEGEO = new Map();
+
+/** sprite 躯干半径表（与 spriteGeometry 的 lathe profile 同步）：流光细纹贴面定位读它 */
+const SPRITE_TORSO_R = [[0.001, -0.30], [0.045, -0.26], [0.075, -0.12], [0.085, 0.02],
+  [0.075, 0.14], [0.045, 0.24], [0.001, 0.30]];
 
 function spriteGeometry(P) {
   let out = SPRITEGEO.get(P);
@@ -318,6 +386,16 @@ function spriteGeometry(P) {
       [0.075, 0.14], [0.045, 0.24], [0.001, 0.30],
     ], { rx: Math.PI / 2, segs: 8 });
     out.torso = p.build();
+
+    // 体表流光细纹（eye 发光槽薄片，rig 装配标 noHit）：精灵系冷光血脉——
+    // 低抖动长流线沿体轴走，宽度克制不糊片；三条主纹 + 两条短分纹
+    out.cracks = surfaceStrips(20260826, makeLatheSurf(mkRadiusFn(SPRITE_TORSO_R)), [
+      [0.4, -0.24, 0.15, 0.26, 5, 0.010, 0.12],              // 右侧主纹
+      [Math.PI - 0.5, -0.22, Math.PI - 0.1, 0.24, 5, 0.010, 0.12],   // 左侧主纹
+      [1.15, -0.26, 1.55, 0.18, 5, 0.009, 0.12],             // 腹右主纹
+      [0.3, -0.05, -0.2, 0.10, 3, 0.007, 0.12],              // 右侧短分纹
+      [Math.PI - 0.35, 0.0, Math.PI + 0.25, -0.12, 3, 0.007, 0.12],  // 左侧短分纹
+    ]);
   }
   {
     // 长颈（两节斜上伸）+ 小头 + 吻 + 大耳 + 长须 + 大眼
@@ -352,13 +430,15 @@ function spriteGeometry(P) {
     out.whiskers = pw.build();
   }
   {
-    // 膜翼（小一号，轻盈）
-    const w = wingGeometry(T, { boneL: 0.42, chord: 0.34, fingerN: 3, memT: 0.005, boneW: 0.020 });
-    out.wingShBone = w.bone; out.wingShMem = w.mem;
-    const w2 = wingGeometry(T, { boneL: 0.34, chord: 0.26, fingerN: 2, memT: 0.005, boneW: 0.016 });
-    out.wingElBone = w2.bone; out.wingElMem = w2.mem;
+    // 膜翼（小一号，轻盈）+ 翼膜光纹薄片（veinW 触发；eye 发光槽，rig 装配标 noHit）
+    const w = wingGeometry(T, { boneL: 0.42, chord: 0.34, fingerN: 3, memT: 0.005, boneW: 0.020, veinW: 0.006 });
+    out.wingShBone = w.bone; out.wingShMem = w.mem; out.wingShVeins = w.veins;
+    const w2 = wingGeometry(T, { boneL: 0.34, chord: 0.26, fingerN: 2, memT: 0.005, boneW: 0.016, veinW: 0.005 });
+    out.wingElBone = w2.bone; out.wingElMem = w2.mem; out.wingElVeins = w2.veins;
     out.wingShBoneL = mirrorX(out.wingShBone); out.wingShMemL = mirrorX(out.wingShMem);
+    out.wingShVeinsL = mirrorX(out.wingShVeins);
     out.wingElBoneL = mirrorX(out.wingElBone); out.wingElMemL = mirrorX(out.wingElMem);
+    out.wingElVeinsL = mirrorX(out.wingElVeins);
   }
   {
     // 细尾三节（飘带尾巴：逐节细）
@@ -389,6 +469,7 @@ export function buildSprite(spec, mats, actor) {
     wingY: 0.08, wingSweep: 0.15, shLen: 0.42,
     legX: 0.06, legZ: -0.10, thighL: 0.12,
     tailL: [0.26, 0.22, 0.20],
+    veinMat: mats.eye,       // 翼膜光纹走 eye 发光槽（draco 是 deep 槽深脉络）
   });
 }
 
@@ -403,13 +484,13 @@ export const SPRITE = {
   flyY: 1.7,
 
   palette: {
-    wrap: 0x7ac4d8,      // 水蓝
-    wrapDark: 0x4a90a8,  // 深青（吻/翼骨/腿/尾）
-    deep: 0x12242c,
-    eye: 0xd8f4ff,       // 冰白大眼
-    eyeGlow: 0.55,
+    wrap: 0x2394e4,      // 湖蓝（饱和压过暖光洗白，不再偏青绿）
+    wrapDark: 0x1f6aae,  // 深蓝（吻/翼骨/腿/尾）
+    deep: 0x0e1c2c,
+    eye: 0xd8f4ff,       // 冰白大眼 + 流光细纹/翼膜光纹同槽
+    eyeGlow: 0.8,        // 克制提一档：流光细纹在深蓝天身上可读，又不糊成一片
     accent: 0xd8e8ee,    // 银白耳/须
-    tatter: 0x4a90a8,
+    tatter: 0x1f6aae,
   },
 
   proportions: {
@@ -440,10 +521,14 @@ export const SPRITE = {
 
   build: buildSprite,
   animate: animateFlyer,
+  // wrap 槽换 linen 中性贴图（默认 fleshMaps 腐肉图偏绿，彩色 palette 被染绿——
+  // 湖蓝/亮色系必须换中性基底才挂得上色，draco/frost 深色系不受影响仍用默认）
+  makeMaterials: (spec, rng) => makeZombieMaterialsFrom(spec, linenMaps(), rng),
 };
 
 // ---------------------------------------------------------------------------
-// 物种二：土龙 earth —— 葫芦（胖球身 + 小翼，1.5Hz 吃力深扇，flyY 低 bob 大）
+// 物种二：土龙 earth —— 葫芦（胖球身 + 小翼，1.5Hz 吃力深扇，flyY 低 bob 大；
+// 暖土黄皮 + 大腹岩石龟裂 deep 槽深色薄片，scale 1.35 四龙第二梯队）
 // ---------------------------------------------------------------------------
 
 const EARTHGEO = new Map();
@@ -459,6 +544,18 @@ function earthGeometry(P) {
     p.ellipsoid(0.26, 0.24, 0.28, { y: -0.06, z: -0.16, rings: 6, segs: 10 });   // 大腹
     p.ellipsoid(0.16, 0.15, 0.16, { y: 0.04, z: 0.14, rings: 5, segs: 8 });      // 小胸
     out.torso = p.build();
+
+    // 岩石皴裂/干涸龟裂薄片（deep 槽深色裂纹、不发光，rig 装配标 noHit）：
+    // 贴大腹球面游走，默认 0.24 抖动出折角皴裂感；两侧 + 腹底三条主裂 + 三条支裂
+    out.cracks = surfaceStrips(20260825, makeEllipsoidSurf([0, -0.06, -0.16], [0.26, 0.24, 0.28]), [
+      [0.2, -0.36, -0.3, -0.02, 6, 0.022],                   // 右侧主裂
+      [Math.PI - 0.2, -0.34, Math.PI + 0.35, -0.04, 6, 0.022],   // 左侧主裂
+      [1.2, -0.38, 1.9, -0.06, 6, 0.024],                    // 腹底主裂（低飞仰视可读）
+      [0.5, -0.10, 0.9, 0.10, 4, 0.016],                     // 前下往胸口的裂
+      [0.1, -0.20, -0.5, -0.10, 3, 0.014],                   // 支裂
+      [Math.PI - 0.1, -0.18, Math.PI + 0.5, -0.26, 3, 0.014],
+      [1.5, -0.15, 1.0, 0.02, 3, 0.013],
+    ]);
   }
   {
     // 短颈 + 圆头 + 钝吻 + 小角 + 圆眼（坐标均为颈关节局部系，与躯干前缘搭接）
@@ -522,6 +619,7 @@ export function buildEarth(spec, mats, actor) {
     wingY: 0.14, wingSweep: 0.12, shLen: 0.24,
     legX: 0.16, legZ: -0.14, thighL: 0.12,
     tailL: [0.20, 0.16, 0.12],
+    crackMat: mats.deep,     // 龟裂走 deep 槽深色（draco/sprite 是 eye 槽发光）
   });
 }
 
@@ -530,19 +628,19 @@ export const EARTH = {
   name: 'Earth（土龙）',
 
   speed: 1.4,
-  scale: 1.1,
-  height: 0.7,
-  radius: 0.42,
+  scale: 1.35,           // 体型上调（1.1→1.35）：仍远小于 draco 2.8，大于 sprite/frost
+  height: 0.85,          // 体高参考，随体型重标
+  radius: 0.50,
   flyY: 1.2,             // 低飞（翼载不足，飞不高）
 
   palette: {
-    wrap: 0xb89a5a,      // 土黄
-    wrapDark: 0x7a6238,  // 棕（翼骨/腿/尾）
-    deep: 0x241a10,
+    wrap: 0xcf9f4e,      // 暖土黄/沙黄（黄土高原读法，不再偏橄榄绿）
+    wrapDark: 0x8a6430,  // 暖棕（翼骨/腿/尾）
+    deep: 0x2a1c0e,      // 深褐黑（龟裂薄片同槽，比底色深的裂纹）
     eye: 0xffd88a,       // 温黄圆眼
     eyeGlow: 0.45,
-    accent: 0x8a6a34,    // 小角
-    tatter: 0x7a6238,
+    accent: 0x9a7236,    // 小角
+    tatter: 0x8a6430,
   },
 
   proportions: {
@@ -573,6 +671,7 @@ export const EARTH = {
 
   build: buildEarth,
   animate: animateFlyer,
+  makeMaterials: (spec, rng) => makeZombieMaterialsFrom(spec, linenMaps(), rng),   // 同 sprite：暖土黄需中性基底
 };
 
 // ---------------------------------------------------------------------------

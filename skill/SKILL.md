@@ -91,6 +91,10 @@ slowing to a hover (draco uses -0.20 / +0.32 for the looming Smaug pose).
   (bake skips them for hit boxes; rendering and severed-debris subtrees unaffected).
 - **Bright palette on dark texture does nothing**: `compensate()` clamps gain at
   `1/max(0.35, gain)` — raise the texture's base brightness first, then the palette.
+- **fleshMaps is hue-tinted (greenish)**: saturated light palettes (lake blue, sandy
+  yellow) multiply into the wrong hue — swap the wrap slot to neutral `linenMaps()`
+  via `spec.makeMaterials` (sprite/earth dragons do exactly this; dark palettes like
+  draco/frost are unaffected and keep the default flesh).
 - **Emissive restraint**: `eyeGlow`/`seamGlow` too high reads as blown-out neon; gate
   emissive seams per plate (~40 % lit) and re-screenshot after every brightness change.
 - **Determinism (multiplayer premise)**: never a bare `Math.random()` in species code —
