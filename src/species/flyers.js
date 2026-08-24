@@ -127,15 +127,19 @@ export function animateFlyer(rig, spec, s) {
   }
 
   // 身体：前进俯仰 + weave 横摆；攻击 = windup 仰身 → strike 前扑下压
+  // 悬停加权 hov = 1-drive：hoverPitch/hoverHeadUp 缺省 0（旧物种行为不变，
+  // 与 src/gait.js fillFlyJoints 逐行对应——双端同源铁律）
   const wv = fly.weave || 0;
-  let torsoX = (fly.pitch || 0) + Math.sin(bobP * 0.5) * 0.03 * drive;
+  const hov = 1 - drive;
+  let torsoX = (fly.pitch || 0) + (fly.hoverPitch || 0) * hov
+    + Math.sin(bobP * 0.5) * 0.03 * drive;
   if (wu > 0) torsoX -= wu * 0.35;
   else if (stk > 0) torsoX += (1 - stk) * 0.45;
   torsoX += sPitch * 1.2;
   rig.hips.rotation.set(sPitch * 0.5, Math.sin(p * 0.31) * wv * 0.8, sRoll * 0.5);
   rig.torso.rotation.set(torsoX, Math.sin(p * 0.23) * wv * 0.6,
     Math.sin(bobP) * wv + sRoll * 1.2);
-  rig.neck.rotation.set((fly.headUp ?? -0.15) + hk * 0.45,
+  rig.neck.rotation.set((fly.headUp ?? -0.15) + (fly.hoverHeadUp || 0) * hov + hk * 0.45,
     Math.sin(p * 0.47) * (fly.headScan ?? 0.3), 0);
   rig.body.position.y = Math.sin(bobP) * (fly.bobAmp || 0)
     + wu * 0.05 - (stk > 0 ? (1 - stk) * 0.12 : 0) - stg * 0.05;

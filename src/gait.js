@@ -764,6 +764,9 @@ export function fillSlugJoints(d, row, width, prm, spec, stepSpan, dt) {
  * 量随振幅缩放（大振幅时肘部有折叠感）。flapAmp=0（hoverdrone）整翼通道静默。
  * 身体：bob（y 正弦）+ 前进俯仰 fly.pitch + weave 横摆（roll/yaw 双通道读
  * 「横移摇晃」）；双腿垂落微摆（无步态周期，fly.legs 种才写）；头微抬。
+ * 悬停姿态（向后兼容新增，缺省 0 = 行为不变）：fly.hoverPitch /
+ * fly.hoverHeadUp 按 (1-drive) 加权——减速悬停时躯干额外俯仰（负值仰身）
+ * 与头部额外抬压（正值低头俯视），给大型飞行种「居高临下」的悬停压迫感。
  * 攻击 = windup 仰身张翼 → strike 前扑下压 + 高度下扎；受击趔趄折进 HIPS/TORSO。
  * 破布槽双用途：tspec.spin（proportions.tatters[i].spin）= 自旋环通道
  * （hoverdrone 稳定环，yaw = p·spin 连续自旋，不占注册关节）；否则烂翼膜抖动。
@@ -819,15 +822,18 @@ export function fillFlyJoints(d, row, width, prm, spec, stepSpan, dt) {
   }
 
   // 身体：前进俯仰 + weave 横摆；受击趔趄折进 HIPS/TORSO，落点抽动打头
+  // 悬停加权 hov = 1-drive：hoverPitch/hoverHeadUp 缺省 0（旧物种行为不变）
   const wv = fly.weave || 0;
-  let torsoX = (fly.pitch || 0) + Math.sin(bobP * 0.5) * 0.03 * drive;
+  const hov = 1 - drive;
+  let torsoX = (fly.pitch || 0) + (fly.hoverPitch || 0) * hov
+    + Math.sin(bobP * 0.5) * 0.03 * drive;
   if (act.wu > 0) torsoX -= act.wu * 0.35;                // 仰身
   else if (act.stk > 0) torsoX += (1 - act.stk) * 0.45;   // 前扑下压
   torsoX += act.pitch * 1.2;
   q(J.HIPS, act.pitch * 0.5, Math.sin(p * 0.31) * wv * 0.8, act.roll * 0.5);
   q(J.TORSO, torsoX, Math.sin(p * 0.23) * wv * 0.6,
     Math.sin(bobP) * wv + act.roll * 1.2);
-  q(J.NECK, (fly.headUp ?? -0.15) + act.hk * 0.45,
+  q(J.NECK, (fly.headUp ?? -0.15) + (fly.hoverHeadUp || 0) * hov + act.hk * 0.45,
     Math.sin(p * 0.47) * (fly.headScan ?? 0.3), 0);
 
   // 破布槽：spin = 自旋环（hoverdrone）；其余 = 烂翼膜/触须抖动

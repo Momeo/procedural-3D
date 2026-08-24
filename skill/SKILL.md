@@ -74,7 +74,10 @@ rotation assigned by the animation every frame — then bake/horde/hitvol accept
 unchanged. `rig.legs[2..5]` / `rig.arms[2..3]` are picked up into extended joint slots
 12–23 (gait dispatch via `spec.gait.kind`: `'spider'` / `'centaur'` / `'slug'` / `'fly'`).
 Flyers put their cruise altitude in `spec.flyY` (baked into the geometry, hit boxes
-included) and their wing/flap parameters in `spec.gait.fly`.
+included) and their wing/flap parameters in `spec.gait.fly`. Optional hover-pose
+params `fly.hoverPitch` / `fly.hoverHeadUp` (both default 0 = unchanged) are
+weighted by `1 - drive`: big flyers rear up and tilt the head down at prey when
+slowing to a hover (draco uses -0.20 / +0.32 for the looming Smaug pose).
 
 ## Pitfalls that have bitten (check before debugging)
 

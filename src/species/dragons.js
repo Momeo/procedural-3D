@@ -21,8 +21,101 @@ import * as THREE from 'three';
 import { parts, tornStrip } from '../core/anatomy.js';
 import { WRAP_TILES } from '../core/wraps.js';
 import { prims } from '../prims.js';
+import { mulberry32 } from '../rng.js';
 import { mirrorX, mkActorTools, flyBlob } from './flyers.js';
 import { animateFlyer } from './flyers.js';
+
+// ---------------------------------------------------------------------------
+// 贴面薄片几何（draco 熔岩裂纹 / 翼膜脉络）：纯四边形条带，2 三角/段，
+// 比 box 嵌条省 6× 三角预算。quad = { c:[3] 中心, t:[3] 长轴方向, n:[3] 法线,
+// len, w }；角点序 (-t-s,+t-s,+t+s,-t+s)（s = n×t）使叉积法线恒为 +n。
+// uv 全零——eye/deep 材质无贴图槽，烘焙合并只读 position/normal/uv。
+// ---------------------------------------------------------------------------
+
+function quadStrips(quads) {
+  const pos = [], nor = [], uvA = [];
+  const t_ = new THREE.Vector3(), n_ = new THREE.Vector3(), s_ = new THREE.Vector3();
+  for (const qd of quads) {
+    t_.fromArray(qd.t).normalize();
+    n_.fromArray(qd.n).normalize();
+    s_.crossVectors(n_, t_);
+    const hl = qd.len / 2, hw = qd.w / 2;
+    const c = [];
+    for (const [lt, ls] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      c.push([
+        qd.c[0] + t_.x * hl * lt + s_.x * hw * ls,
+        qd.c[1] + t_.y * hl * lt + s_.y * hw * ls,
+        qd.c[2] + t_.z * hl * lt + s_.z * hw * ls,
+      ]);
+    }
+    for (const i of [0, 1, 2, 0, 2, 3]) {
+      pos.push(c[i][0], c[i][1], c[i][2]);
+      nor.push(n_.x, n_.y, n_.z);
+      uvA.push(0, 0);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvA, 2));
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** draco 躯干半径表（与 dracoGeometry 的 lathe profile 同步，分段线性插值）：
+ *  裂纹薄片与背脊刺的贴面定位都读它。lathe(rx=π/2) 后表面参数化为
+ *  P(a,z) = (r·cos a, -r·sin a, z)——a=π/2 腹 / a=3π/2 背 / a=0 右 / a=π 左。 */
+const DRACO_TORSO_R = [[0.001, -0.42], [0.10, -0.38], [0.17, -0.20], [0.20, 0.02],
+  [0.18, 0.20], [0.12, 0.34], [0.001, 0.42]];
+function dracoTorsoR(z) {
+  const P = DRACO_TORSO_R;
+  if (z <= P[0][1]) return P[0][0];
+  for (let i = 0; i < P.length - 1; i++) {
+    if (z <= P[i + 1][1]) {
+      const t = (z - P[i][1]) / (P[i + 1][1] - P[i][1]);
+      return P[i][0] + (P[i + 1][0] - P[i][0]) * t;
+    }
+  }
+  return P[P.length - 1][0];
+}
+
+/** 熔岩裂纹网：确定性种子流（mulberry32 固定种子，不吃 withSeed 实例流——
+ *  几何走 DRACOGEO 缓存全实例共享）。主枝沿体轴游走 + 侧枝分叉，宽度渐细。 */
+function lavaCracks(seed) {
+  const rnd = mulberry32(seed);
+  const quads = [];
+  const branch = (a0, z0, a1, z1, segN, w0) => {
+    let a = a0, z = z0;
+    for (let i = 0; i < segN; i++) {
+      const t01 = (i + 1) / segN;
+      const na = a0 + (a1 - a0) * t01 + (rnd() - 0.5) * 0.24;
+      const nz = z0 + (z1 - z0) * t01 + (rnd() - 0.5) * 0.05;
+      const ma = (a + na) / 2, mz = (z + nz) / 2;
+      const r = dracoTorsoR(mz) + 0.006;                 // 浮出鳞面，防 z-fight
+      const da = na - a, dz = nz - z;
+      // 切向 = 绕轴弧长分量 + 体轴分量（∂P/∂a = (-sin a, -cos a, 0)·r）
+      const tx = -Math.sin(ma) * r * da, ty = -Math.cos(ma) * r * da;
+      const len = Math.hypot(tx, ty, dz);
+      if (len < 1e-4) continue;
+      quads.push({
+        c: [r * Math.cos(ma), -r * Math.sin(ma), mz],
+        t: [tx / len, ty / len, dz / len],
+        n: [Math.cos(ma), -Math.sin(ma), 0],
+        len: len * 1.15,                                  // 段间微重叠，缝线不断
+        w: w0 * (1 - t01 * 0.55) * (0.8 + rnd() * 0.4),
+      });
+      a = na; z = nz;
+    }
+  };
+  // 三条主枝：右腹 / 左腹 / 腹中线（背部正脊让给背刺列；腹面裂纹仰视可读）
+  branch(0.9, -0.36, 0.5, 0.24, 6, 0.024);
+  branch(Math.PI - 0.8, -0.30, Math.PI - 0.4, 0.18, 6, 0.022);
+  branch(1.35, -0.32, 1.75, 0.10, 5, 0.020);
+  // 两条侧枝（从主枝中途分叉）
+  branch(0.75, -0.10, 0.15, 0.06, 3, 0.014);
+  branch(Math.PI - 0.62, 0.0, Math.PI - 0.1, -0.14, 3, 0.013);
+  return quadStrips(quads);
+}
 
 // ---------------------------------------------------------------------------
 // 共享：龙骨架装配（G 几何字典 + D 布局尺寸 → rig）
@@ -60,6 +153,8 @@ function buildDragonRig(spec, mats, actor, G, D) {
   if (G.whiskers) add(neck, G.whiskers, mats.accent, 'head', true);   // 须（sprite）
   if (G.ribs) add(torso, G.ribs, mats.wrap, 'body');                  // 肋梁（frost）
   if (G.pelvis) add(torso, G.pelvis, mats.wrapDark, 'body');
+  if (G.cracks) add(torso, G.cracks, mats.eye, 'body', true);         // 熔岩裂纹薄片（draco，noHit）
+  if (G.spikes) add(torso, G.spikes, mats.wrapDark, 'body', true);    // 背脊刺列（draco，noHit 装饰件）
 
   // 膜翼一对 = arms[2]/[3]（ARM2/EL2 槽，bake 按下标注册：arms[2]=L / arms[3]=R；
   // arms[0..1] 留空——前腿在 LEG2 槽，fillFly 第 0 对翼通道写空槽无害）
@@ -90,11 +185,13 @@ function buildDragonRig(spec, mats, actor, G, D) {
     mountW.add(shoulder);
     add(shoulder, side > 0 ? G.wingShBone : G.wingShBoneL, mats.wrapDark, 'body');
     if (G.wingShMem) add(shoulder, side > 0 ? G.wingShMem : G.wingShMemL, mats.accent, 'body');
+    if (G.wingShVeins) add(shoulder, side > 0 ? G.wingShVeins : G.wingShVeinsL, mats.deep, 'body', true);   // 翼膜脉络 noHit（draco）
     const elbow = new THREE.Group();
     elbow.position.x = side * D.shLen;
     shoulder.add(elbow);
     add(elbow, side > 0 ? G.wingElBone : G.wingElBoneL, mats.wrapDark, 'body');
     if (G.wingElMem) add(elbow, side > 0 ? G.wingElMem : G.wingElMemL, mats.accent, 'body');
+    if (G.wingElVeins) add(elbow, side > 0 ? G.wingElVeins : G.wingElVeinsL, mats.deep, 'body', true);
     arms[side < 0 ? 2 : 3] = { shoulder, elbow, side };   // ARM2_L / ARM2_R
 
     // 烂翼膜（frost）：破布条挂翼肘，tatter 槽随翼拍动
@@ -153,7 +250,9 @@ function buildDragonRig(spec, mats, actor, G, D) {
 }
 
 /** 膜翼几何（单侧 +x）：臂骨 + 3 翼指 + 指间膜面片（蝙蝠翼读法）。
- *  cfg: { boneL, chord, fingerN, memT(膜厚), boneW } */
+ *  cfg: { boneL, chord, fingerN, memT(膜厚), boneW, veinW?(脉络条宽，缺省不产) }
+ *  cfg.veinW 给出时额外产 veins：膜面上下两侧的深色脉络薄片（quadStrips，
+ *  与膜盒同参数定位；膜盒参数改了这里跟着改）。 */
 function wingGeometry(T, cfg) {
   const bone = parts(T);
   bone.box(cfg.boneL, cfg.boneW, cfg.boneW * 1.2, { x: cfg.boneL / 2, z: 0.02 });
@@ -168,7 +267,36 @@ function wingGeometry(T, cfg) {
     mem.box(cfg.boneL * 0.72, cfg.memT, cfg.chord * 0.42,
       { x: cfg.boneL * (0.42 + t * 0.2), z: -cfg.chord * (0.32 + t * 0.3), ry: -0.18 - t * 0.25 });
   }
-  return { bone: bone.build(), mem: mem.build() };
+  let veins = null;
+  if (cfg.veinW) {
+    const quads = [];
+    for (let k = 0; k < cfg.fingerN; k++) {
+      const t = k / cfg.fingerN;
+      const mx = cfg.boneL * (0.42 + t * 0.2), mz = -cfg.chord * (0.32 + t * 0.3);
+      const ry = -0.18 - t * 0.25, L = cfg.boneL * 0.72, C = cfg.chord * 0.42;
+      const cs = Math.cos(ry), sn = Math.sin(ry);
+      // 每片膜 1~2 条脉络：膜盒局部系内从骨缘向后缘放射（y 旋转同 box 契约）
+      const vn = k === 0 ? 2 : 1;
+      for (let v = 0; v < vn; v++) {
+        const x0 = -L * 0.28, z0 = -C * (0.28 - v * 0.26);
+        const x1 = L * 0.42, z1 = C * (0.04 + v * 0.30);
+        const dx = x1 - x0, dz = z1 - z0;
+        const len = Math.hypot(dx, dz);
+        // 局部 → 世界：先 ry 旋转再平移；法线 ±ŷ 不受 ry 影响
+        const wx0 = x0 * cs + z0 * sn + mx, wz0 = -x0 * sn + z0 * cs + mz;
+        const wx1 = x1 * cs + z1 * sn + mx, wz1 = -x1 * sn + z1 * cs + mz;
+        const t3 = [(wx1 - wx0) / len, 0, (wz1 - wz0) / len];
+        for (const sy of [1, -1]) {
+          quads.push({
+            c: [(wx0 + wx1) / 2, sy * (cfg.memT / 2 + 0.003), (wz0 + wz1) / 2],
+            t: t3, n: [0, sy, 0], len, w: cfg.veinW * (v === 0 ? 1 : 0.75),
+          });
+        }
+      }
+    }
+    veins = quadStrips(quads);
+  }
+  return { bone: bone.build(), mem: mem.build(), veins };
 }
 
 // ---------------------------------------------------------------------------
@@ -608,7 +736,9 @@ export const FROST = {
 };
 
 // ---------------------------------------------------------------------------
-// 物种四：黑红大龙 draco —— 王座三角（黑身红膜大翼，翼展 ≥3m，1Hz 有力深扇）
+// 物种四：黑红巨龙 draco —— 王座三角（巨龙化 r2：直立身高 ~4.3m、翼展 ~9m
+// 霸屏；黑鳞间熔岩裂纹（eye 发光槽薄片）+ 红膜深色脉络（deep 槽薄片）+ 背脊
+// 刺列；0.9Hz 深沉大扇翅，悬停仰身昂首俯视（hoverPitch/hoverHeadUp））
 // ---------------------------------------------------------------------------
 
 const DRACOGEO = new Map();
@@ -626,6 +756,19 @@ function dracoGeometry(P) {
       [0.18, 0.20], [0.12, 0.34], [0.001, 0.42],
     ], { rx: Math.PI / 2, segs: 10 });
     out.torso = p.build();
+
+    // 背脊刺列（王冠背，中段最高、后倾；半径贴面读 dracoTorsoR 与 lathe
+    // profile 同步）——独立几何 + rig 装配标 noHit（装饰件铁律：不撑躯干盒，
+    // 否则低角度射线先撞刺尖盒顶，爆头不可达）
+    const ps = prims(T);
+    [-0.34, -0.22, -0.10, 0.02, 0.14, 0.26].forEach((z, i) => {
+      const h = 0.11 - Math.abs(i - 2.5) * 0.020;
+      ps.cyl(0, 0.022, h, { y: dracoTorsoR(z) + h * 0.32, z, rx: -0.5, radial: 5, capBot: false });
+    });
+    out.spikes = ps.build();
+
+    // 熔岩裂纹薄片（eye 发光槽，rig 装配时标 noHit）：黑鳞间透出的红橙裂缝
+    out.cracks = lavaCracks(20260824);
   }
   {
     // 粗长颈（三节渐细）+ 大头 + 长吻 + 王冠三角 + 凶眼（颈关节局部系）
@@ -655,13 +798,16 @@ function dracoGeometry(P) {
     out.eyes = pe.build();
   }
   {
-    // 大膜翼（翼展 ≥3m：肩段 0.75 + 肘段 0.75，4 指撑膜）
-    const w = wingGeometry(T, { boneL: 0.75, chord: 0.55, fingerN: 3, memT: 0.006, boneW: 0.030 });
-    out.wingShBone = w.bone; out.wingShMem = w.mem;
-    const w2 = wingGeometry(T, { boneL: 0.72, chord: 0.42, fingerN: 3, memT: 0.006, boneW: 0.024 });
-    out.wingElBone = w2.bone; out.wingElMem = w2.mem;
+    // 大膜翼（翼展 ~9m@scale2.8：肩段 0.75 + 肘段 0.72，3 指撑膜）+ 深色脉络
+    // 薄片贴膜面上下两侧（veinW 触发；deep 槽，rig 装配时标 noHit）
+    const w = wingGeometry(T, { boneL: 0.75, chord: 0.55, fingerN: 3, memT: 0.006, boneW: 0.030, veinW: 0.016 });
+    out.wingShBone = w.bone; out.wingShMem = w.mem; out.wingShVeins = w.veins;
+    const w2 = wingGeometry(T, { boneL: 0.72, chord: 0.42, fingerN: 3, memT: 0.006, boneW: 0.024, veinW: 0.016 });
+    out.wingElBone = w2.bone; out.wingElMem = w2.mem; out.wingElVeins = w2.veins;
     out.wingShBoneL = mirrorX(out.wingShBone); out.wingShMemL = mirrorX(out.wingShMem);
+    out.wingShVeinsL = mirrorX(out.wingShVeins);
     out.wingElBoneL = mirrorX(out.wingElBone); out.wingElMemL = mirrorX(out.wingElMem);
+    out.wingElVeinsL = mirrorX(out.wingElVeins);
   }
   {
     // 粗长尾三节（三角剪影的底边）
@@ -697,20 +843,20 @@ export function buildDraco(spec, mats, actor) {
 
 export const DRACO = {
   id: 'draco',
-  name: 'Draco（黑红大龙）',
+  name: 'Draco（黑红巨龙）',
 
   speed: 2.0,
-  scale: 1.35,
-  height: 1.1,
-  radius: 0.55,
-  flyY: 2.4,
+  scale: 2.8,            // 巨龙化：直立身高 ~4.3m（体高 1.5 单位 × scale）
+  height: 4.4,           // 体高参考（shooter 受击落点归一用），随体型重标
+  radius: 0.9,
+  flyY: 2.0,             // 悬停高度 ×scale ≈ 5.6m——居高临下俯视玩家
 
   palette: {
     wrap: 0x1a1516,      // 黑身
     wrapDark: 0x2c2224,  // 深灰黑（翼骨/腿/尾）
-    deep: 0x0c0a0c,
-    eye: 0xff3020,       // 红瞳
-    eyeGlow: 0.7,
+    deep: 0x0c0a0c,      // 近黑（翼膜脉络薄片同槽）
+    eye: 0xff4818,       // 红橙瞳 + 熔岩裂纹同槽发光
+    eyeGlow: 1.1,        // 裂纹要透出鳞面，比常规种亮一档
     accent: 0x8a1a12,    // 红膜翼
     tatter: 0x2c2224,
   },
@@ -727,16 +873,18 @@ export const DRACO = {
 
   gait: {
     kind: 'fly',
-    rate: 2.74,          // (TAU·1 - 0.8) / 2.0：拍频 1Hz
+    rate: 2.43,          // (TAU·0.9 - 0.8) / 2.0：拍频 0.9Hz——深沉有力的大扇翅
     fly: {
-      flapRate: 1,
-      flapAmp: 0.60,     // 有力深扇
-      bobAmp: 0.06, bobRate: 1,
-      weave: 0.05, pitch: 0.08,   // 姿态稳
-      wingPairs: 2, dihedral: 0.15,
-      pairLag: 0.9, tipLag: 1.9, tipFold: 0.55,
-      legs: true, legDangle: 0.30, legBend: 0.50,
-      headUp: -0.10, headScan: 0.3,
+      flapRate: 0.9,
+      flapAmp: 0.75,     // 大振幅深扇
+      bobAmp: 0.10, bobRate: 0.9,   // bob 放缓放沉
+      weave: 0.04, pitch: 0.06,     // 姿态稳
+      wingPairs: 2, dihedral: 0.12,
+      pairLag: 0.9, tipLag: 2.0, tipFold: 0.50,
+      legs: true, legDangle: 0.35, legBend: 0.55,
+      headUp: -0.06, headScan: 0.25,
+      hoverPitch: -0.20,   // 悬停仰身（胸膛前挺，Smaug 式居高临下）
+      hoverHeadUp: 0.32,   // 悬停头部下压俯视猎物
     },
   },
 
