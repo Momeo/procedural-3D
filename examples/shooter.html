@@ -66,7 +66,10 @@ const grid = makeCullGrid({ half: 20, cells: 2, margin: 3 });
 const HP = { zombie: 30, crawler: 20, runner: 24, screecher: 26, bloater: 80, brute: 160,
   tickbot: 26, spiderbot: 42, centaurbot: 95, titan: 320, maggot: 20,
   carrion: 30, moth: 24, hornet: 16, hoverdrone: 46,   // 飞行种：hornet 一枪、hoverdrone 两发爆头
-  sprite: 20, earth: 50, frost: 36, draco: 180 };         // 龙系列：earth 胖所以肉；draco 巨龙化后按体型定档（3 发爆头）
+  sprite: 20, earth: 50, frost: 36, draco: 180,           // 龙系列：earth 胖所以肉；draco 巨龙化后按体型定档（3 发爆头）
+  // 亡灵系列（梯度：杂兵一枪爆头 → Boss 四发）：猎犬最脆（速度换血），wraith
+  // 幽体 30，lich 施法者 90，graveknight 精英甲厚两发爆头整，bonebrute 巨像 300
+  skeltrooper: 24, bonehound: 20, wraith: 30, lich: 90, graveknight: 140, bonebrute: 300 };
 const BODY_DMG = 25;
 // 配比同 horde 丧尸海；?species=xxx 切单物种模式（探针/专项验收用，默认不动）
 const ONLY = SPECIES[q.get('species')] ? q.get('species') : null;
@@ -654,8 +657,13 @@ function severLimb(b, i, joint, dx, dy, dz) {
   debrisSpawn(b, i, joint, dx, dy, dz);
   // 步态后果（速度从 baseSpeed 确定性重算，不叠加；攻击冻结中则改写
   // speedSave，等攻击结束的恢复逻辑带出，防跛行被冻结恢复冲掉）
-  const legL = (st.severMask & ((1 << J.HIP_L) | (1 << J.KNEE_L))) !== 0;
-  const legR = (st.severMask & ((1 << J.HIP_R) | (1 << J.KNEE_R))) !== 0;
+  // 腿桶掩码含多肢体扩展位（LEG2/LEG3）：四足/六足种（bonehound 后腿在
+  //  LEG2 槽、spiderbot 中后腿）断任一条腿也要降速，此前只看 HIP/KNEE
+  //  导致扩展位断腿零后果
+  const LEG_MASK_L = (1 << J.HIP_L) | (1 << J.KNEE_L) | (1 << J.LEG2_L) | (1 << J.KNEE2_L) | (1 << J.LEG3_L) | (1 << J.KNEE3_L);
+  const LEG_MASK_R = (1 << J.HIP_R) | (1 << J.KNEE_R) | (1 << J.LEG2_R) | (1 << J.KNEE2_R) | (1 << J.LEG3_R) | (1 << J.KNEE3_R);
+  const legL = (st.severMask & LEG_MASK_L) !== 0;
+  const legR = (st.severMask & LEG_MASK_R) !== 0;
   let newSp = -1;
   if (legL && legR) {
     if (!b.spec.gait.crawl && !b.spec.gait.kind) {

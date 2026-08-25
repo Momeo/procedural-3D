@@ -30,6 +30,11 @@ the horde, and is fully hittable/dismemberable.
    - dragon → `src/species/dragons.js` (long neck + protruding head, chained tatter
      pivots for the tail, membrane wings on the ARM2 slots, `buildDragonRig` shared
      skeleton: sprite = slim, earth = fat with tiny wings, frost = skeletal, draco = big)
+   - skeleton/undead → `src/species/undead.js` (`buildBoneHumanoid` = a bony rewrite of
+     the humanoid contract driven straight by `MUMMY.animate`; species-side bone helpers
+     `strut`/`boneSeg`/`boneSegTwin`/`ribCage`/`skullGeo`; quadruped hound reuses the
+     `'centaur'` gait with empty `arms`; wraith/lich hover on the `flapAmp=0` flyer
+     branch; the wraith is the translucent one — see Pitfalls)
 3. **Write the spec tables** (contracts below). Respect the iron rule
    `hipY = thighL + shinL` or the feet float.
 4. **Textures** (optional): follow the wraps.js/zombie.js canvas paradigm — draw albedo
@@ -102,6 +107,14 @@ slowing to a hover (draco uses -0.20 / +0.32 for the looming Smaug pose).
   factories derive per-instance seeds from the species id).
 - **New material slot = +1 draw call per species in the horde**: decorations go into the
   existing six slots; keep one monster at ~1–2.5k triangles.
+- **Translucency works, with two rules** (wraith): keep it to `transparent` +
+  `depthWrite:false` at opacity ≈ 0.4–0.6 on the *existing* slots (ghost-on-ghost
+  mis-sorts read as "brighter = more solid", which is acceptable; opaque scenes
+  stay correct because they write depth first). A double-sided transparent
+  material renders in TWO passes in three.js — that breaks the
+  `calls = Σparts + 2` horde contract (+1 per species); set
+  `material.forceSinglePass = true` (the tatter slot is the only double-sided
+  one). Keep translucency rare — it is the wraith's signature, not a series default.
 
 ## Surface detailing (decal-strip paradigm)
 

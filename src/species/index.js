@@ -19,6 +19,9 @@ import { MAGGOT } from './maggot.js';
 import { createRobot, TICKBOT, SPIDERBOT, CENTAURBOT, TITAN } from './robots.js';
 import { CARRION, MOTH, HORNET, HOVERDRONE } from './flyers.js';
 import { SPRITE, EARTH, FROST, DRACO } from './dragons.js';
+import {
+  SKELTROOPER, BONEHOUND, WRAITH, LICH, GRAVEKNIGHT, BONEBRUTE,
+} from './undead.js';
 
 export const SPECIES = {
   zombie:     { spec: ZOMBIE,              factory: createZombie },
@@ -40,4 +43,10 @@ export const SPECIES = {
   earth:      { spec: EARTH,               factory: createZombieEx },  // 土龙：葫芦胖身 + 小翼
   frost:      { spec: FROST,               factory: createZombieEx },  // 冰龙：骨架 + 烂翼膜
   draco:      { spec: DRACO,               factory: createZombieEx },  // 黑红大龙：王座三角，翼展 3m+
+  skeltrooper: { spec: SKELTROOPER,        factory: createZombieEx },  // 亡灵系列（undead.js）：骷髅卒，瘦骨持械
+  bonehound:  { spec: BONEHOUND,           factory: createZombieEx },  // 骷髅猎犬：低矮骨兽四足（centaur 步态复用）
+  wraith:     { spec: WRAITH,              factory: createZombieEx },  // 怨灵：半透明悬浮幽灵（fly 悬浮支）
+  lich:       { spec: LICH,                factory: createZombieEx },  // 尸巫：罩袍施法者 + 骨杖 + 胸口魂火
+  graveknight: { spec: GRAVEKNIGHT,        factory: createZombieEx },  // 墓穴骑士：残破板甲精英 + 盾/大剑
+  bonebrute:  { spec: BONEBRUTE,           factory: createZombieEx },  // 骸骨巨像：Boss 梯队 2.3x 骨刺塔
 };

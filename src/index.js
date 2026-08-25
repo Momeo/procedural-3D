@@ -14,7 +14,7 @@
  *             geometry primitives), lod.js (distance-tiered animation +
  *             grid frustum culling), hitvol.js (per-part OBB hit volumes),
  *             ragdoll.js (hand-rolled Verlet death ragdoll).
- *   species/  Spec tables + factories for the 11 built-in species
+ *   species/  Spec tables + factories for the 25 built-in species
  *             (registry: species/index.js, export SPECIES).
  *   gunpals/  Living creature-weapons: 5 built-in guns with a four-state
  *             behavior actor (idle/aim/fire/overheat).
