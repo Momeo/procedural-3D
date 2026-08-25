@@ -70,8 +70,8 @@ const HP = { zombie: 30, crawler: 20, runner: 24, screecher: 26, bloater: 80, br
   // 亡灵系列（梯度：杂兵一枪爆头 → Boss 四发）：猎犬最脆（速度换血），wraith
   // 幽体 30，lich 施法者 90，graveknight 精英甲厚两发爆头整，bonebrute 巨像 300
   skeltrooper: 24, bonehound: 20, wraith: 30, lich: 90, graveknight: 140, bonebrute: 300,
-  // 魔像系列（精英/Boss 档 70~150 拉开；装甲板 ×0.3 减伤壳逼玩家破板，
-  // 板掉后核心盒暴露吃 ×3 同爆头档——破板机制见下方 PLATE_HITS 段）
+  // 魔像系列（精英/Boss 档 70~150 拉开）：frostgolem 最脆（冰），rockgolem
+  // 基石精英，crystalgolem 悬浮精英，magmagolem Boss 档 150（两发爆头收）
   rockgolem: 90, magmagolem: 150, frostgolem: 70, crystalgolem: 110 };
 const BODY_DMG = 25;
 // 配比同 horde 丧尸海；?species=xxx 切单物种模式（探针/专项验收用，默认不动）
@@ -405,7 +405,6 @@ for (const b of batches) {
       ox: 0, oz: 0,                 // 受击击退瞬时位移（衰减）
       severMask: 0,                 // 断肢掩码（bit j = 关节 j 及下游隐藏）
       limbHits: { armL: 0, armR: 0, legL: 0, legR: 0 },   // 四肢累计受击（断肢触发）
-      plateHits: {},                // 装甲板按关节累计受击（golem 板脱落触发）
       ragSlot: -1,                  // 布娃娃槽位（-1 = 非布娃娃死亡）
       atkCd: random() * 1.5,        // 攻击冷却（近身 ≤1.8m 起攻击循环）
       blowDone: false,              // 本次挥击是否已结算（红闪去重）
@@ -641,17 +640,7 @@ const SEVER_NAMES = {
   leg3L: J.LEG3_L, knee3L: J.KNEE3_L, leg3R: J.LEG3_R, knee3R: J.KNEE3_R,
   arm2L: J.ARM2_L, elbow2L: J.EL2_L, arm2R: J.ARM2_R, elbow2R: J.EL2_R,
 };
-// 装甲板（golem 谱系，species/golem.js）：板 = ARM2/EL2 扩展槽上的独立 pivot，
-// 按 (实例, 关节) 计数、PLATE_HITS 次中弹整块脱落（severMask 同断肢通路，
-// 碎块走残肢池）；板在时 ×0.3 减伤壳，板掉后核心盒（part 'core'）暴露吃 ×3。
-// 板不进 LIMB_OF_JOINT 四肢桶（不触发断肢计数/降速语义）
-const PLATE_HITS = 3;
-const PLATE_OF_JOINT = {   // 板关节 → 语义名（探针 severAt 用）
-  plateChest: J.ARM2_L, plateBelly: J.EL2_L, plateBack: J.ARM2_R, plateMantle: J.EL2_R,
-};
-Object.assign(SEVER_NAMES, PLATE_OF_JOINT);
-
-function severLimb(b, i, joint, dx, dy, dz, noBlood) {
+function severLimb(b, i, joint, dx, dy, dz) {
   const st = b.states[i];
   if (st.severMask & (1 << joint)) return false;
   st.severMask |= (1 << joint);
@@ -662,12 +651,11 @@ function severLimb(b, i, joint, dx, dy, dz, noBlood) {
     triggerStagger(st.params, { s: c * dx - sn * dz, f: sn * dx + c * dz, ly: 0.5, k: 1 });
   }
   stats.severCount++;
-  // 断口喷血：FK 取关节世界位置（hitvol 同公式直读纹理行）；
-  // 装甲板脱落不喷血（岩石/冰/水晶不流血），只有碎块飞溅
+  // 断口喷血：FK 取关节世界位置（hitvol 同公式直读纹理行）
   jointWorldMatrix(b, i, joint, _sm);
   _jp.set(b.baked.pivots[joint * 3], b.baked.pivots[joint * 3 + 1], b.baked.pivots[joint * 3 + 2])
     .applyMatrix4(_sm);
-  if (!noBlood) bloodBurst(_jp.x, _jp.y, _jp.z, 16, 1.5, 2.0);
+  bloodBurst(_jp.x, _jp.y, _jp.z, 16, 1.5, 2.0);
   debrisSpawn(b, i, joint, dx, dy, dz);
   // 步态后果（速度从 baseSpeed 确定性重算，不叠加；攻击冻结中则改写
   // speedSave，等攻击结束的恢复逻辑带出，防跛行被冻结恢复冲掉）
@@ -773,7 +761,6 @@ function respawn(b, i) {
   st.fallY = 0; st.fallV = 0;
   st.severMask = 0; st.params.severMask = 0; st.params.crawl = false;
   st.limbHits.armL = st.limbHits.armR = st.limbHits.legL = st.limbHits.legR = 0;
-  st.plateHits = {};
   st.speed = st.params.speed = st.baseSpeed;
   st.params.atkT = -1; st.params.stgT = -1; st.params.hitK0 = 0;
   st.atkCd = random() * 1.5; st.blowDone = false; st.atkFrozen = false;
@@ -826,14 +813,6 @@ function fire() {
 
   if (st.hp <= 0) {
     startDeath(b, i, head, _rayD.x, _rayD.y, _rayD.z, true);
-  } else if (part === 'plate') {
-    // 装甲板（golem）：按 (实例, 关节) 计数，PLATE_HITS 次中弹整块脱落——
-    // 置 severMask（顶点塌缩，板盒随之失效：hitvol 跳过掩码链）+ 碎块入
-    // 残肢池；板不喷血（noBlood）。板掉后同方向射线直达核心盒吃 ×3
-    st.plateHits[joint] = (st.plateHits[joint] || 0) + 1;
-    if (st.plateHits[joint] >= PLATE_HITS && !(st.severMask & (1 << joint))) {
-      severLimb(b, i, joint, _rayD.x, _rayD.y, _rayD.z, true);
-    }
   } else if (limb) {
     // 断肢触发：四肢累计受击 SEVER_HITS 次断；断点 = 中弹关节缝，已断则升级近端
     const lk = LIMB_OF_JOINT[joint];
@@ -1233,7 +1212,7 @@ renderer.setAnimationLoop(() => {
       `Horde ${TOTAL} · alive ${st.alive} · kills ${st.kills}\n` +
       `Shots ${st.shots} · hits ${st.hits} (${acc}%) · headshots ${st.headshots} (${hsr}%) · DPS ${dps}\n` +
       `Parts: head ${p.head || 0} · torso ${(p.torso || 0) + (p.hips || 0)} · limbs ${(p.arm || 0) + (p.leg || 0)}\n` +
-      `Damage: torso ${BODY_DMG} / limbs ×${PART_MULT.arm}=${BODY_DMG * PART_MULT.arm} / head·core ×${PART_MULT.head}=${BODY_DMG * PART_MULT.head} / armor plate ×${PART_MULT.plate} (golem plates break after ${PLATE_HITS} hits → core exposed)\n` +
+            `Damage: torso ${BODY_DMG} / limbs ×${PART_MULT.arm}=${BODY_DMG * PART_MULT.arm} / head ×${PART_MULT.head}=${BODY_DMG * PART_MULT.head} (zombie/runner/screecher/crawler die to one headshot)\n` +
       `Dismember: ${SEVER_HITS} limb hits sever (cut at the hit joint) · lethal headshot=decapitation · both legs=crawl · one leg=limp\n` +
       `Severed ${st.severCount} · ragdolls ${st.ragdollActive}/${RAGDOLL_MAX} · debris ${st.debrisActive}/${DEBRIS_MAX} (frozen corpses sink and respawn after 8s)\n` +
       `draw calls ${st.calls} · tri ${st.triangles}`;

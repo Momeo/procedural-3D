@@ -20,13 +20,19 @@ no texture files, no build step — plain ES modules with a single peer dependen
   on the centaur gait, a translucent hovering wraith (transparency that survives the
   instancing path), a robed lich with staff and chest soul-fire, an armoured grave
   knight and a boss-tier bone colossus (scale 2.3, under draco's 2.8).
-- **Golem series with breakable armor plates**: elite/boss-tier rock/magma/frost/
-  crystal golems (scale 1.5–2.3). Four armor plates per golem sit on dedicated
-  pivots in the extended joint slots — each plate is its own hit box (×0.3 soak),
-  breaks off after 3 hits (same per-instance severMask path as dismemberment,
-  debris flies through the existing pool), and exposes the glowing core hit box
-  (×3, headshot tier). Mask-aware hit testing: dropped plates and severed limbs
-  stop blocking shots (hitvol.js reads the sever mask column).
+- **Golem series**: elite/boss-tier rock/magma/frost/crystal golems (scale
+  1.5–2.3), differentiated by body plan (stocky monument / tall inverted
+  triangle / thin ice pillar / hovering crystal cluster), surface markings
+  (moss & weathering cracks / glowing lava fissures / restrained frost fern
+  lines / violet crystal veins) and heads (half-buried skull with a single
+  eye slit / glowing maw + rock-horn pair / faceless ice head with spike
+  crown / one big floating crystal, no jaw).
+- **Breakable armor plates** (retained optional mechanism, unused by the
+  golems since r2): bake.js honors `userData.plate` / `region:'core'` part
+  tags (hit boxes merged per leaf×part — bit-identical results for existing
+  species) and hitvol.js carries `plate ×0.3 / core ×3` multipliers plus
+  mask-aware hit skipping (severed limbs and dropped parts no longer
+  ghost-block shots — a genuine bug fix, kept).
 - **Horde instancing pipeline**: bake any species rig into one geometry per material and
   render hundreds of animated instances at a fixed draw-call budget — 300 mixed monsters
   in ~40–60 draw calls, independent of headcount.

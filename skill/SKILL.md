@@ -35,14 +35,17 @@ the horde, and is fully hittable/dismemberable.
      `strut`/`boneSeg`/`boneSegTwin`/`ribCage`/`skullGeo`; quadruped hound reuses the
      `'centaur'` gait with empty `arms`; wraith/lich hover on the `flapAmp=0` flyer
      branch; the wraith is the translucent one — see Pitfalls)
-   - golem (elite/boss, breakable armor) → `src/species/golem.js` (chunky barrel
-     humanoids on the stock gait via `golemAnimate`; **breakable armor plates**:
-     four plates on dedicated pivots registered into the ARM2/EL2 extended joint
-     slots, `userData.plate` / `region:'core'` part overrides at bake, shooter-side
-     per-joint hit counter reusing the severMask path, and mask-aware hit skipping
-     in hitvol.js — severed/dropped subtrees no longer ghost-block shots;
-     crystalgolem hovers on the `flapAmp=0` flyer branch with a spin-ring of
-     crystal shards on the tatter channel)
+   - golem (elite/boss) → `src/species/golem.js` (chunky humanoids on the stock
+     gait via `golemAnimate`; differentiation by body plan / surfaceStrips
+     markings / head design — rock = stocky monument with huge fists and a
+     half-buried skull, magma = tall inverted-triangle boss with a glowing maw
+     and horn pair, frost = thin ice pillar with a faceless head and spike
+     crown, crystal = hovering crystal-cluster body with pillar-legs and a big
+     crystal head; crystalgolem hovers on the `flapAmp=0` flyer branch with a
+     spin-ring of shards on the tatter channel). Breakable armor plates remain
+     available as an unused retained mechanism (bake.js `userData.plate` /
+     `region:'core'` tags + hitvol.js plate/core multipliers; mask-aware hit
+     skipping — severed limbs no longer ghost-block shots — is a kept bug fix)
 3. **Write the spec tables** (contracts below). Respect the iron rule
    `hipY = thighL + shinL` or the feet float.
 4. **Textures** (optional): follow the wraps.js/zombie.js canvas paradigm — draw albedo

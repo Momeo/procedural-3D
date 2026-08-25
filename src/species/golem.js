@@ -1,41 +1,39 @@
 /**
  * 元素魔像谱系（golem.js）：岩石 rockgolem / 熔岩 magmagolem / 冰霜
- * frostgolem / 水晶 crystalgolem。精英/Boss 层：重甲巨物、低频砸地步、
- * 大体型（scale 1.5~2.3，不超过 draco 2.8 铁律）。四剪影词：圆石桶（灰褐
- * 苔痕）/ 黑岩裂炉（橙红裂缝）/ 苍白冰塔（半透明冰甲）/ 紫晶悬浮（碎晶环）。
+ * frostgolem / 水晶 crystalgolem。精英/Boss 层：低频砸地步、大体型
+ * （scale 1.5~2.3，不超过 draco 2.8 铁律）。
+ *
+ * 差异化三维度（2026-08-25 r2 重做：去除装甲板机制在魔像身上的使用，
+ * 四种不再共用桶身底子）：
+ *   1. 身体胖瘦/比例：rock 矮壮墩实（宽肩短腿巨拳，会走的碑）/
+ *      magma 高大魁梧倒三角（Boss 2.3）/ frost 瘦高冰柱（棱柱躯干+细长四肢）
+ *      / crystal 中等悬浮（晶簇拼身、垂落晶柱代替腿型）；
+ *   2. 身体纹路（surfaceStrips 贴面薄片，一种一个读法）：rock 苔藓斑+风化
+ *      皴裂（deep 槽不发光）/ magma 熔岩缝发光铺满胸背（eye 槽 1.05）/
+ *      frost 冰白霜纹（eye 槽克制 0.6）/ crystal 紫青晶脉（eye 槽 0.9）；
+ *   3. 脑袋特殊化（robots.js 头部个性化先例）：rock 半埋石颅+单眼缝 /
+ *      magma 裂口发光嘴+双岩刺角 / frost 光滑无面冰面+双冰蓝眼+冰锥冠 /
+ *      crystal 悬浮大水晶当头（菱锥八面体，无下颚）。
+ *   20m 外四项全不同，剪影秒分。
  *
  * 借与自写的分界（范式照 dragons.js / undead.js 顶部契约）：
  *   - 借：parts()（core/anatomy.js）、contactShadow（core/contact.js）、
  *     WRAP_TILES/linenMaps（core/wraps.js）、prims（pipeline/prims.js）、
  *     mkActorTools/flyBlob/animateFlyer（flyers.js）、MUMMY.animate
- *     （core/mummy.js 人形步态）、strut（undead.js）、surfaceStrips/
- *     mkRadiusFn/makeLatheSurf/quadStrips（dragons.js 贴面游走器）、
- *     makeZombieMaterialsFrom（zombies_ex.js）。
- *   - 自写：魔像 rig（buildGolem 行走三种 + buildCrystalgolem 悬浮一种，
- *     骨架对齐人形契约）+ **可破坏装甲板机制**（见下）。
+ *     （core/mummy.js 人形步态）、surfaceStrips/
+ *     mkRadiusFn（dragons.js 贴面游走器）、makeZombieMaterialsFrom
+ *     （zombies_ex.js）。
+ *   - 自写：四种体型底子（共享柱肢/桶身 builder，参数全走 P）+
+ *     golemAnimate 壳（core 不可改，蓄力后仰按 spec.windupLean 反向抵消；
+ *     instanced 侧 gait.js 人形支直读同字段，双端同源）。
  *
- * 可破坏装甲板（本谱系的核心机制，pipeline 纯增量、旧物种零变化）：
- *   - 板 = 挂在**扩展关节位**（ARM2/EL2 槽 20-23，行走魔像用不到第二对臂）
- *     的独立 pivot 上：胸甲 ARM2_L(20) / 腹甲 EL2_L(21) / 背甲 ARM2_R(22) /
- *     肩披 EL2_R(23)。动画不接管这些槽（恒零旋转，姿态烘进几何）。
- *   - 判定：板 mesh 标 userData.plate → bake 产 part 'plate' 独立盒
- *     （PART_MULT.plate=0.3 减伤壳）；核心 mesh region 'core' → part 'core'
- *     独立盒（×3 要害，与爆头同档），挂在躯干叶上但按「叶×部位」分键合并，
- *     不被躯干盒吞掉（bake.js 合并键改动，旧物种同叶恒同部位、结果不变）。
- *   - 脱落：shooter.html 按 (实例, 关节) 计数，板中弹 PLATE_HITS=3 次 →
- *     severLimb 置 severMask 位（顶点塌缩逐实例生效，断肢现成通路）+
- *     碎块走残肢飞舞池（baked.debris 对 20-23 槽照常产出）。
- *   - 板掉之后：hitvol.js 的 raycastLocal 跳过链上含掩码位的盒（列 0.z
- *     读回 severMask）——板盒消失，射线直达核心盒吃 ×3。**这一跳通同时也
- *     修了旧物种的潜在问题：断掉的手臂此前仍留幽灵盒挡子弹**（现在同源）。
- *   - 布娃娃/死亡：板关节不进 ragdoll 模板（只读标准 11 关节），尸体保留
- *     脱落状态；crystalgolem 走 fly 悬浮种的失速螺旋坠落。
- *   取舍：板位就 4 个（ARM2/EL2 槽占满；LEG2/LEG3 槽会触发断腿降速语义，
- *   不可用）；板计数阈值全场统一（3）；板盒只做 slab 壳不做逐块血量条。
+ * 配色防染：四种全用 linenMaps 中性基底（fleshMaps 绿染坑）。装饰件一律
+ * noHit；六材质槽不破。
  *
- * 配色防染：四种全用 linenMaps 中性基底（fleshMaps 绿染坑；冰霜/水晶是
- * 彩色 palette 必换）。发光裂纹/核心走 eye 槽克制（0.8~1.05），深色皴裂/
- * 苔痕走 deep 槽，装饰件一律 noHit，六材质槽不破。
+ * 备注（去甲后）：bake.js 的 userData.plate / region:'core' 部位覆盖与
+ * hitvol.js 的 plate/core 倍率 + severMask 掩码链跳过是**保留的通用可选
+ * 机制**（零运行时成本、旧物种零影响）——魔像不再使用；掩码链跳过同时是
+ * 断肢幽灵盒的真 bug fix（断掉的肢体不再挡子弹），必须保留。
  */
 
 import * as THREE from 'three';
@@ -45,16 +43,15 @@ import { WRAP_TILES, linenMaps } from '../core/wraps.js';
 import { MUMMY } from '../core/mummy.js';
 import { prims } from '../prims.js';
 import { mkActorTools, flyBlob, animateFlyer } from './flyers.js';
-import { strut } from './undead.js';
-import { surfaceStrips, mkRadiusFn, makeLatheSurf } from './dragons.js';
+import { surfaceStrips, mkRadiusFn } from './dragons.js';
 import { makeZombieMaterialsFrom } from './zombies_ex.js';
 
 // ---------------------------------------------------------------------------
-// 魔像共享几何/Rig
+// 共享小件
 // ---------------------------------------------------------------------------
 
 /** 直立桶身（lathe，轴 +Y）表面参数化：P(a,y) = (r·cos a, y, r·sin a)，
- *  a=0 → 正前（+z）/ a=π 背 / a=±π/2 两侧。给 surfaceStrips 贴裂纹用。 */
+ *  a=0 → 正前（+z）/ a=π 背 / a=±π/2 两侧。给 surfaceStrips 贴纹路用。 */
 function makeBarrelSurf(rFn) {
   return (a, y) => {
     const r = rFn(y);
@@ -62,140 +59,43 @@ function makeBarrelSurf(rFn) {
   };
 }
 
-/**
- * 魔像几何总装（按 proportions 记录缓存，G 字典）：
- *   pelvis/thigh/shin（石柱腿）/ torso（lathe 桶身）+ shoulderRock（肩头岩）
- *   upper/fore（巨石臂）/ head 三件套（岩颅 + 眉檐 + 发光目缝 eye）
- *   cracks（species 贴面纹，槽位由 D 布局决定）/ core（eye 发光核心）
- *   plateChest/plateBelly/plateBack/plateMantle（四块装甲板，pivot 局部系）
- * P 自定义字段：torsoProfile（lathe 半径表，裂纹贴面共用）、fistW、
- *   plateStyle = { w, h, t }（板尺寸基调）。
- */
-function golemGeometry(P) {
-  let out = GOLEMGEO.get(P);
-  if (out) return out;
-  const T = WRAP_TILES;
-  out = {};
-  const rFn = mkRadiusFn(P.torsoProfile);
+/** 柱肢（魔像的腿是承重仓柱）：大腿柱 + 小腿柱 + 石板脚；粗细/长度全走 P。 */
+function limbGeometry(T, P) {
+  const out = {};
   {
-    // 骨盆：厚岩盘
     const p = parts(T);
-    p.box(P.hipW, 0.30, P.bodyD * 0.9, { y: 0.02, top: 1.0, bottom: 0.85 });
-    out.pelvis = p.build();
-  }
-  {
-    // 石柱腿：大腿收、小腿更粗（魔像的腿是承重仓柱）
-    const p = parts(T);
-    p.box(P.legW, P.thighL, P.legW, { y: -P.thighL / 2, top: 1.15, bottom: 0.9 });
+    p.box(P.legW, P.thighL, P.legW, { y: -P.thighL / 2, top: 1.12, bottom: 0.9 });
     out.thigh = p.build();
     const ps = parts(T);
-    ps.box(P.legW * 1.1, P.shinL, P.legW * 1.1, { y: -P.shinL / 2, top: 0.95, bottom: 1.1 });
-    // 石板大脚（踩地的重读法全靠它）
-    ps.box(P.legW * 1.5, 0.12, P.legW * 2.0, { y: -P.shinL + 0.05, z: P.legW * 0.35, top: 1.0, bottom: 0.95 });
+    ps.box(P.legW * 1.05, P.shinL, P.legW * 1.05, { y: -P.shinL / 2, top: 0.95, bottom: 1.08 });
+    ps.box(P.legW * (P.footW ?? 1.5), 0.12, P.legW * 2.0,
+      { y: -P.shinL + 0.05, z: P.legW * 0.35, top: 1.0, bottom: 0.95 });
     out.shin = ps.build();
   }
   {
-    // 桶身：lathe 圆桶（岩身主剪影）+ 肩头两块圆岩
-    const p = prims(T);
-    p.lathe(P.torsoProfile, { segs: 10 });
-    out.torso = p.build();
-    const pk = prims(T);
-    for (const s of [-1, 1]) {
-      pk.ellipsoid(P.shoulderRockR, P.shoulderRockR * 0.8, P.shoulderRockR * 0.9,
-        { x: s * P.shoulderX * 0.92, y: P.chestH * 0.92, z: 0, rings: 4, segs: 7 });
-    }
-    out.shoulderRock = pk.build();
-  }
-  {
-    // 巨石臂：上臂岩块 + 前臂厚板 + 石拳
     const p = parts(T);
-    p.box(P.armW * 1.3, P.upperL, P.armW * 1.25, { y: -P.upperL / 2, top: 1.2, bottom: 0.85 });
+    p.box(P.armW * 1.25, P.upperL, P.armW * 1.2, { y: -P.upperL / 2, top: 1.18, bottom: 0.86 });
     out.upper = p.build();
     const pf = parts(T);
-    pf.box(P.armW * 1.5, P.foreL, P.armW * 1.4, { y: -P.foreL / 2, top: 0.9, bottom: 1.1 });
-    pf.box(P.armW * P.fistW, P.armW * P.fistW, P.armW * P.fistW, { y: -P.foreL - P.armW * P.fistW * 0.4, top: 0.9, bottom: 0.9 });
+    pf.box(P.armW * 1.45, P.foreL, P.armW * 1.35, { y: -P.foreL / 2, top: 0.9, bottom: 1.08 });
+    // 石拳（拳径 P.fistW × 臂粗——rockgolem 的巨拳是其剪影词之一）
+    pf.box(P.armW * P.fistW, P.armW * P.fistW, P.armW * P.fistW,
+      { y: -P.foreL - P.armW * P.fistW * 0.4, top: 0.9, bottom: 0.9 });
     out.fore = pf.build();
   }
-  {
-    // 头：小岩颅（埋进肩线的巨物头）+ 眉檐 + 目缝（eye 发光槽）
-    const p = prims(T);
-    p.ellipsoid(P.headW * 0.5, P.headH * 0.45, P.headD * 0.48, { y: P.headH * 0.45, rings: 4, segs: 7 });
-    // 颈岩：桶顶到头底的衔接块（头抬出桶顶是爆头可达铁律，不是造型选择）
-    p.ellipsoid(P.headW * 0.36, 0.09, P.headD * 0.36, { y: -0.04, rings: 3, segs: 6 });
-    out.skull = p.build();
-    const pb = parts(T);
-    pb.box(P.headW * 1.15, P.headH * 0.22, P.headD * 0.55, { y: P.headH * 0.62, z: P.headD * 0.28, top: 1.0, bottom: 0.85 });
-    out.brow = pb.build();
-    const pe = parts(T);
-    pe.box(P.headW * 0.72, P.headH * 0.10, 0.02, { y: P.headH * 0.44, z: P.headD * 0.52, chamfer: 0.002 });
-    out.eyes = pe.build();
-  }
-  {
-    // 发光核心（eye 槽；挂躯干叶、region 'core' 独立要害盒）：晶核 + 内芯
-    const p = prims(T);
-    p.ellipsoid(0.085, 0.10, 0.05, { y: P.chestH * 0.52, z: rFn(P.chestH * 0.52) + 0.005, rings: 4, segs: 7 });
-    p.ellipsoid(0.045, 0.055, 0.028, { y: P.chestH * 0.52, z: rFn(P.chestH * 0.52) + 0.035, rings: 3, segs: 6 });
-    out.core = p.build();
-  }
-  {
-    // 四块装甲板（accent 槽；pivot 局部系，板面法线朝外）：
-    // 胸甲大板 / 腹甲小板 / 背甲大板 / 肩披横板——各自的盒就是各自的判定盒
-    // 胸甲几何中心只微垂（yOff -0.15h）：胸甲必须把核心（chestH*0.52）整个
-    // 盖住——垂低了核心会从板上缘探出来（首轮实拍踩出：yOff -0.4h 时核心
-    // 上半截外露，「打掉壳片露出核心」的前提没了）
-    const st = P.plateStyle;
-    const mk = (w, h, t, yOff = -0.4) => {
-      const p = parts(T);
-      p.box(w, h, t, { y: yOff * h, top: 0.95, bottom: 1.05 });
-      // 板面加一道棱（两块板拼出的厚度差读作「锻造板」而非「片」）
-      p.box(w * 0.86, h * 0.2, t * 1.6, { y: yOff * h + h * 0.05, chamfer: 0.006 });
-      return p.build();
-    };
-    out.plateChest = mk(st.w, st.h * 1.15, st.t, -0.15);
-    out.plateBelly = mk(st.w * 0.72, st.h * 0.55, st.t);
-    out.plateBack = mk(st.w * 0.95, st.h * 0.9, st.t);
-    out.plateMantle = mk(st.w * 1.5, st.h * 0.5, st.t);
-  }
-  GOLEMGEO.set(P, out);
   return out;
 }
-const GOLEMGEO = new Map();
 
-/** 行走魔像的动画壳：两件事——
- *  1. 板 pivot 复位：MUMMY.animate 会把 rig.arms 全数当手臂写——板 pivot
- *     （arms[2]/[3]）没有 bias 字段，reach=NaN 会把板矩阵毒成 NaN（首轮实拍
- *     板整片消失即此）。写后把板 pivot 复位到 bind 恒等（与烘焙零姿态一致，
- *     instanced 路径的零四元数语义天然恒等，无需管线侧任何改动）。
- *  2. 蓄力后仰抵消：core animateHumanoid 的 windup 后仰 0.30 rad 不可调
- *     （core 一行不改）——重甲巨物后仰会让胸甲大幅后甩读成「板飞了」
- *     （用户实测报告）。按 spec.windupLean 反向抵消到目标幅值；instanced
- *     侧 pipeline/gait.js 直接读同字段（双端同值同源）。 */
-function golemAnimate(rig, spec, s) {
-  MUMMY.animate(rig, spec, s);
-  for (let ai = 2; ai < rig.arms.length; ai++) {
-    rig.arms[ai].shoulder.rotation.set(0, 0, 0);
-    rig.arms[ai].elbow.rotation.set(0, 0, 0);
-  }
-  const wl = spec.windupLean ?? 0.30;
-  if (wl !== 0.30 && s.windup > 0) {
-    rig.torso.rotation.x -= s.windup * (0.30 - wl);   // 抵消 core 的固定 0.30 后仰
-  }
-}
-
-/**
- * 行走魔像 rig（rock/magma/frost 共用）：人形契约 + 四板 pivot 占
- * ARM2/EL2 扩展槽（arms[2]/[3]，各带空 elbow 子节点凑 bake 的对位契约——
- * 空槽无几何不写纹理行）。G.plate* 网格标 userData.plate，核心标
- * region 'core'（bake.js 的部位覆盖通路）。
- */
-function buildGolem(spec, mats, actor) {
+/** 行走魔像 rig 装配（rock/magma/frost 共用）：人形契约（bake 零改动可烘）。
+ *  G = 物种几何字典（pelvis/limbs/torso/shoulderRock/head 件/cracks），
+ *  物种 build 负责后挂装饰件（角/冠/刺等，noHit）。 */
+function buildGolemRig(spec, mats, actor, G) {
   const P = spec.proportions;
-  const G = golemGeometry(P);
   const { meshes, add, count } = mkActorTools(mats, actor);
   // R = 逐实例随机：工厂（createZombieEx）withSeed 流内调用，保持原样
   const R = () => Math.random();
 
-  // 抖动方案照抄 buildHumanoid/buildBoneHumanoid 的分布（怪海复算侧同分布）
+  // 抖动方案照抄 buildHumanoid 的分布（gait.js makeGaitParams 复算侧同分布）
   const j = {
     leg: 0.93 + R() * 0.15,
     arm: 0.92 + R() * 0.17,
@@ -221,7 +121,7 @@ function buildGolem(spec, mats, actor) {
   body.add(hips);
   add(hips, G.pelvis, mats.wrapDark, 'body').scale.set(j.chestW, 1, j.chestW);
 
-  // 石柱腿（站位一前一后，同人形契约）
+  // 柱腿（站位一前一后，同人形契约）
   const legs = [];
   for (const side of [-1, 1]) {
     const hip = new THREE.Group();
@@ -236,18 +136,16 @@ function buildGolem(spec, mats, actor) {
     legs.push({ hip, knee, side });
   }
 
-  // 躯干（桶身 + 肩岩 + 贴面裂纹）
+  // 躯干（桶身 + 肩头岩 + 贴面纹路）
   const torso = new THREE.Group();
   torso.position.y = P.torsoY;
   torso.rotation.y = asym.reach * 0.85;
   hips.add(torso);
   add(torso, G.torso, mats.wrap, 'body').scale.set(j.chestW, j.chest, j.chestW);
-  add(torso, G.shoulderRock, mats.wrapDark, 'body').scale.set(j.chestW, j.chest, j.chestW);
+  if (G.shoulderRock) {
+    add(torso, G.shoulderRock, mats.wrapDark, 'body').scale.set(j.chestW, j.chest, j.chestW);
+  }
   if (G.cracks) add(torso, G.cracks, P.crackMat === 'deep' ? mats.deep : mats.eye, 'body', true);   // 贴面纹 noHit
-
-  // 发光核心（胸甲之后）：region 'core' → 独立要害盒
-  const mc = add(torso, G.core, mats.eye, 'body');
-  mc.userData.region = 'core';
 
   // 巨石臂
   const arms = [];
@@ -266,37 +164,14 @@ function buildGolem(spec, mats, actor) {
     arms.push({ shoulder, elbow, side, bias: side * asym.reach });
   }
 
-  // 装甲板四块：arms[2]/[3] 占 ARM2/EL2 槽。pivot 位置 = 贴桶身皮
-  // （rFn 读共享半径表）；板姿态烘进几何，注册关节恒零
-  const rFn = mkRadiusFn(P.torsoProfile);
-  const chestP = new THREE.Group();
-  chestP.position.set(0, P.chestH * 0.60, rFn(P.chestH * 0.60) * j.chestW + 0.035);
-  torso.add(chestP);
-  add(chestP, G.plateChest, mats.accent, 'body').userData.plate = true;
-  const bellyP = new THREE.Group();
-  bellyP.position.set(0, -P.chestH * 0.40, -0.02);
-  chestP.add(bellyP);
-  add(bellyP, G.plateBelly, mats.accent, 'body').userData.plate = true;
-  const backP = new THREE.Group();
-  backP.position.set(0, P.chestH * 0.60, -rFn(P.chestH * 0.60) * j.chestW - 0.035);
-  torso.add(backP);
-  add(backP, G.plateBack, mats.accent, 'body').userData.plate = true;
-  const mantleP = new THREE.Group();
-  mantleP.position.set(0, P.chestH * 0.30, 0.02);
-  backP.add(mantleP);
-  add(mantleP, G.plateMantle, mats.accent, 'body').userData.plate = true;
-  // 注册进 arms[2]/[3]（bake jmap：arms[2]=ARM2_L/EL2_L，arms[3]=ARM2_R/EL2_R）
-  arms[2] = { shoulder: chestP, elbow: bellyP, side: -1 };
-  arms[3] = { shoulder: backP, elbow: mantleP, side: 1 };
-
-  // 头（岩颅埋进肩线；爆头仍须可达——头盒心探出桶身顶缘）
+  // 头（物种特色件全在 G 里；头盒心探出躯干盒顶 = 爆头可达铁律）
   const neck = new THREE.Group();
   neck.position.y = P.headY * j.chest;
   neck.scale.setScalar(j.head);
   neck.rotation.y = -asym.reach * 1.15;
   torso.add(neck);
   add(neck, G.skull, mats.wrap, 'head');
-  add(neck, G.brow, mats.wrapDark, 'head');
+  if (G.headDark) add(neck, G.headDark, mats.wrapDark, 'head');
   add(neck, G.eyes, mats.eye, 'head');
 
   const blob = contactShadow((spec.radius ?? 0.55) * 1.8);
@@ -315,30 +190,84 @@ function buildGolem(spec, mats, actor) {
   return rig;
 }
 
+/** 行走魔像的动画壳：core animateHumanoid 的 windup 后仰 0.30 rad 不可调
+ *  （core 一行不改）——重甲巨物后仰读法太飘（用户实测报告「胸甲后甩」的
+ *  真凶，板已于 r2 去除，字段保留）。按 spec.windupLean 反向抵消到目标幅值；
+ *  instanced 侧 pipeline/gait.js 人形支直读同字段（双端同值同源）。 */
+function golemAnimate(rig, spec, s) {
+  MUMMY.animate(rig, spec, s);
+  const wl = spec.windupLean ?? 0.30;
+  if (wl !== 0.30 && s.windup > 0) {
+    rig.torso.rotation.x -= s.windup * (0.30 - wl);   // 抵消 core 的固定 0.30 后仰
+  }
+}
+
 // ---------------------------------------------------------------------------
-// 物种一：岩石魔像 rockgolem —— 圆石桶（灰褐巨岩拼合，苔痕/深色皴裂 deep 槽，
-// 慢而沉的基石精英）
+// 物种一：岩石魔像 rockgolem —— 会走的碑（矮壮墩实：宽肩短腿巨拳，
+// 半埋式石颅+单眼缝；苔藓斑+风化皴裂 deep 槽不发光）
 // ---------------------------------------------------------------------------
 
-/** 桶身半径表（lathe profile 与裂纹贴面共用）：鼓腹收肩的岩桶 */
-const ROCK_PROFILE = [[0.001, -0.02], [0.30, 0.02], [0.38, 0.22], [0.40, 0.44],
-  [0.34, 0.62], [0.24, 0.72], [0.001, 0.76]];
+const ROCKGEO = new Map();
+
+/** 矮壮桶：半径表（lathe profile 与纹路贴面共用） */
+const ROCK_PROFILE = [[0.001, -0.02], [0.36, 0.0], [0.46, 0.16], [0.50, 0.36],
+  [0.44, 0.52], [0.32, 0.62], [0.001, 0.66]];
+
+function rockGeometry(P) {
+  let out = ROCKGEO.get(P);
+  if (out) return out;
+  const T = WRAP_TILES;
+  out = {};
+  {
+    const p = parts(T);
+    p.box(P.hipW, 0.30, P.bodyD * 0.9, { y: 0.02, top: 1.0, bottom: 0.85 });
+    out.pelvis = p.build();
+  }
+  Object.assign(out, limbGeometry(T, P));
+  {
+    const p = prims(T);
+    p.lathe(P.torsoProfile, { segs: 10 });
+    out.torso = p.build();
+    // 肩头两座大岩丘（半埋石颅的「肩线」由它们撑出——顶低于头盒心，不挡判定）
+    const pk = prims(T);
+    for (const s of [-1, 1]) {
+      pk.ellipsoid(0.20, 0.15, 0.18, { x: s * P.shoulderX * 0.85, y: P.chestH * 0.88, z: 0, rings: 4, segs: 7 });
+    }
+    out.shoulderRock = pk.build();
+  }
+  {
+    // 半埋式石颅：矮扁颅（几乎没脖子，嵌进肩线；头顶与两肩岩丘同高）+ 单眼缝
+    const p = prims(T);
+    p.ellipsoid(P.headW * 0.55, P.headH * 0.40, P.headD * 0.50, { y: P.headH * 0.32, rings: 4, segs: 7 });
+    out.skull = p.build();
+    // 眉檐巨石（压出「头埋进肩」的读法）
+    const pb = parts(T);
+    pb.box(P.headW * 1.3, P.headH * 0.24, P.headD * 0.6, { y: P.headH * 0.52, z: P.headD * 0.2, top: 1.0, bottom: 0.8 });
+    out.headDark = pb.build();
+    // 单眼缝（eye 槽，一条横缝）
+    const pe = parts(T);
+    pe.box(P.headW * 0.66, P.headH * 0.075, 0.02, { y: P.headH * 0.34, z: P.headD * 0.50, chamfer: 0.002 });
+    out.eyes = pe.build();
+  }
+  {
+    // 苔藓斑 + 风化皴裂（deep 槽深色不发光）：主裂两侧+背面，顶部苔斑漫纹
+    out.cracks = surfaceStrips(20260827, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
+      [0.5, 0.02, 0.15, 0.52, 6, 0.020],
+      [Math.PI - 0.5, 0.04, Math.PI + 0.3, 0.50, 6, 0.020],
+      [Math.PI * 0.5, 0.03, Math.PI * 0.5, 0.52, 5, 0.024],
+      [0.8, 0.24, 0.2, 0.38, 3, 0.013],
+      [Math.PI - 0.8, 0.22, Math.PI - 0.15, 0.36, 3, 0.013],
+      [1.35, 0.50, 1.8, 0.60, 3, 0.017],                    // 顶部苔痕（沿肩线漫）
+    ]);
+  }
+  ROCKGEO.set(P, out);
+  return out;
+}
 
 export function buildRockgolem(spec, mats, actor) {
   const P = spec.proportions;
-  const G = golemGeometry(P);
-  if (!G.cracks) {
-    // 深色皴裂 + 苔痕（deep 槽不发光）：桶身两侧+正面三条主裂 + 顶部苔斑纹
-    G.cracks = surfaceStrips(20260827, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
-      [0.5, 0.04, 0.15, 0.60, 6, 0.020],                    // 右前主裂
-      [Math.PI - 0.5, 0.06, Math.PI + 0.3, 0.56, 6, 0.020], // 左前主裂
-      [Math.PI * 0.5, 0.05, Math.PI * 0.5, 0.58, 5, 0.024], // 背脊主裂
-      [0.8, 0.30, 0.2, 0.42, 3, 0.013],                     // 支裂
-      [Math.PI - 0.8, 0.26, Math.PI - 0.15, 0.40, 3, 0.013],
-      [1.35, 0.62, 1.8, 0.70, 3, 0.016],                    // 顶部苔痕（沿肩线漫）
-    ]);
-  }
-  return buildGolem(spec, mats, actor);
+  const G = rockGeometry(P);
+  return buildGolemRig(spec, mats, actor, G);
 }
 
 export const ROCKGOLEM = {
@@ -347,90 +276,140 @@ export const ROCKGOLEM = {
 
   speed: 0.9,
   scale: 1.6,
-  height: 3.0,
+  height: 2.6,
   radius: 0.62,
 
   palette: {
     wrap: 0x8a7a62,      // 灰褐岩身
     wrapDark: 0x5a4c3c,  // 深岩（小腿/前臂/肩岩/眉檐）
-    deep: 0x2c2a1c,      // 皴裂+苔痕（深褐绿）
-    eye: 0xffc86a,       // 琥珀目缝 + 核心
-    eyeGlow: 0.6,
-    accent: 0x6e6558,    // 石板甲
-    accentRough: 0.85,
-    accentMetal: 0.05,
+    deep: 0x2c2a1c,      // 皴裂+苔痕（深褐绿，不发光）
+    eye: 0xffc86a,       // 琥珀单眼缝
+    eyeGlow: 0.55,
+    accent: 0x6e6558,
     tatter: 0x4a4438,
   },
 
   proportions: {
-    hipY: 1.05, hipW: 0.55, bodyD: 0.50,
-    legX: 0.20, legW: 0.22, thighL: 0.52, shinL: 0.53,   // hipY=thighL+shinL，铁律
-    torsoY: 0.12, chestW: 0.80, chestH: 0.75,
+    hipY: 0.84, hipW: 0.60, bodyD: 0.54,          // 矮壮：髋低腿短
+    legX: 0.24, legW: 0.26, thighL: 0.41, shinL: 0.43,   // hipY=thighL+shinL，铁律
+    torsoY: 0.10, chestW: 0.86, chestH: 0.64,     // 宽桶
     torsoProfile: ROCK_PROFILE,
-    shoulderX: 0.45, shoulderY: 0.55, shoulderRockR: 0.17,
-    armW: 0.16, upperL: 0.50, foreL: 0.55, fistW: 1.7,
-    headY: 0.93, headW: 0.22, headH: 0.26, headD: 0.24,
-    plateStyle: { w: 0.52, h: 0.44, t: 0.045 },
+    shoulderX: 0.52, shoulderY: 0.46,             // 超宽肩
+    armW: 0.19, upperL: 0.44, foreL: 0.50, fistW: 2.4,   // 巨拳
+    headY: 0.72, headW: 0.26, headH: 0.24, headD: 0.26,  // 半埋石颅（头顶≈桶顶+缝）
+    footW: 1.7,
     crackMat: 'deep',
     tatterRest: 0,
     tatters: [],
   },
 
   gait: {
-    rate: 0.65,          // 低频重踏（每一步都砸地）
-    stride: 0.52,
-    armSwing: 0.26,      // 巨石臂钟摆
-    armReach: 0.05,      // 手臂垂落
-    armSplay: 0.30,      // 宽桶身撑开
+    rate: 0.62,          // 低频重踏（每一步都砸地）
+    stride: 0.50,
+    armSwing: 0.26,
+    armReach: 0.05,
+    armSplay: 0.32,      // 宽桶身把巨臂撑开
     elbowBend: -0.08,
-    lean: -0.06,         // 接近直立：巨物的稳
-    sway: 0.13,
+    lean: -0.05,
+    sway: 0.14,
     hipTwist: 0.05,
     bob: 0.085,
-    headLoll: 0.05,
+    headLoll: 0.04,
     headDroop: -0.10,
   },
 
+  windupLean: 0.08,      // 蓄力后仰压小（重甲巨物 0.30 读法太飘）
   makeMaterials: (spec, rng) => makeZombieMaterialsFrom(spec, linenMaps(), rng),
-  windupLean: 0.08,    // 蓄力后仰压小（重甲巨物 0.30 会让胸甲大幅后甩）
   build: buildRockgolem,
   animate: golemAnimate,
 };
 
 // ---------------------------------------------------------------------------
-// 物种二：熔岩魔像 magmagolem —— 黑岩裂炉（Boss 档 scale 2.3：黑玄武岩身 +
-// 熔岩裂缝 eye 发光纹（surfaceStrips 范式）+ 关节缝渗光）
+// 物种二：熔岩魔像 magmagolem —— 倒三角熔炉（Boss 档 scale 2.3：高大魁梧、
+// 上宽下收；熔岩缝发光铺满胸背 + 裂口发光嘴 + 双岩刺角）
 // ---------------------------------------------------------------------------
 
-const MAGMA_PROFILE = [[0.001, -0.02], [0.32, 0.02], [0.40, 0.24], [0.42, 0.46],
-  [0.36, 0.64], [0.26, 0.74], [0.001, 0.78]];
+const MAGMAGEO = new Map();
+
+/** 倒三角桶：下收上阔（肩线最宽） */
+const MAGMA_PROFILE = [[0.001, -0.02], [0.24, 0.02], [0.30, 0.22], [0.36, 0.44],
+  [0.44, 0.62], [0.47, 0.74], [0.001, 0.80]];   // 顶收低：倒三角肩线顶住即可，
+  // 再高会让肩峰盒挡住「低机位→头」的射线（r2 实测：肩线顶 5.1m 时 8m 外
+  // 平视仰角的爆头射线先穿躯干盒顶缘）
+
+function magmaGeometry(P) {
+  let out = MAGMAGEO.get(P);
+  if (out) return out;
+  const T = WRAP_TILES;
+  out = {};
+  {
+    const p = parts(T);
+    p.box(P.hipW, 0.32, P.bodyD * 0.9, { y: 0.02, top: 1.0, bottom: 0.85 });
+    out.pelvis = p.build();
+  }
+  Object.assign(out, limbGeometry(T, P));
+  {
+    const p = prims(T);
+    p.lathe(P.torsoProfile, { segs: 10 });
+    out.torso = p.build();
+    // 肩峰玄武岩块（倒三角的「肩线外扩」读法）
+    const pk = prims(T);
+    for (const s of [-1, 1]) {
+      pk.ellipsoid(0.22, 0.16, 0.20, { x: s * P.shoulderX * 0.88, y: P.chestH * 0.80, z: 0, rings: 4, segs: 7 });
+    }
+    out.shoulderRock = pk.build();
+  }
+  {
+    // 头：方颅 + 裂口发光嘴（熔岩从口器缝透出）+ 双岩刺角（装配处后挂）
+    const p = prims(T);
+    p.ellipsoid(P.headW * 0.52, P.headH * 0.44, P.headD * 0.48, { y: P.headH * 0.44, rings: 4, segs: 7 });
+    out.skull = p.build();
+    // 下颌岩（wrapDark）压住嘴缝下缘
+    const pj = parts(T);
+    pj.box(P.headW * 0.9, P.headH * 0.18, P.headD * 0.5, { y: P.headH * 0.10, z: P.headD * 0.2, top: 1.0, bottom: 0.85 });
+    out.headDark = pj.build();
+    // 裂口嘴 + 目缝（eye 槽合一：嘴下目上两条发光缝）
+    const pe = parts(T);
+    pe.box(P.headW * 0.7, P.headH * 0.07, 0.02, { y: P.headH * 0.20, z: P.headD * 0.48, chamfer: 0.002 });   // 裂口嘴
+    pe.box(P.headW * 0.62, P.headH * 0.06, 0.02, { y: P.headH * 0.55, z: P.headD * 0.50, chamfer: 0.002 });  // 目缝
+    out.eyes = pe.build();
+  }
+  {
+    // 熔岩缝（eye 槽 1.05，透出近黑岩面）：胸背铺满——正面三主枝 + 背两枝 +
+    // 往肩渗的短枝（r1 被胸甲盖着，r2 去甲后铺满）
+    out.cracks = surfaceStrips(20260828, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
+      [0.3, 0.04, 0.08, 0.80, 7, 0.024],                    // 正右主枝（爬到肩）
+      [Math.PI - 0.3, 0.02, Math.PI - 0.08, 0.78, 7, 0.024],// 正左主枝
+      [0.0, 0.10, 0.0, 0.70, 6, 0.022],                     // 正中枝
+      [Math.PI * 0.5, 0.06, Math.PI * 0.45, 0.80, 6, 0.026],// 背主枝
+      [Math.PI * 1.5, 0.08, Math.PI * 1.55, 0.76, 6, 0.026],// 背副枝
+      [0.7, 0.30, 0.2, 0.50, 3, 0.015],                     // 支裂
+      [Math.PI - 0.7, 0.32, Math.PI - 0.2, 0.52, 3, 0.015],
+      [1.2, 0.55, 1.5, 0.72, 3, 0.014],
+      [Math.PI - 1.2, 0.58, Math.PI - 1.5, 0.74, 3, 0.014],
+    ]);
+  }
+  MAGMAGEO.set(P, out);
+  return out;
+}
 
 export function buildMagmagolem(spec, mats, actor) {
   const P = spec.proportions;
-  const G = golemGeometry(P);
-  if (!G.cracks) {
-    // 熔岩裂缝（eye 发光槽；黑岩面要透出，glow 定档 1.05 同 draco 思路）：
-    // 正面两主枝 + 背一枝 + 关节方向短枝（裂缝往肩/髋「渗」）
-    G.cracks = surfaceStrips(20260828, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
-      [0.4, 0.02, 0.1, 0.62, 7, 0.024],
-      [Math.PI - 0.4, 0.04, Math.PI - 0.05, 0.60, 7, 0.024],
-      [Math.PI * 0.5, 0.06, Math.PI * 0.5, 0.62, 6, 0.028],
-      [0.9, 0.55, 1.3, 0.70, 3, 0.016],                     // 往肩渗
-      [Math.PI - 0.9, 0.52, Math.PI - 1.3, 0.68, 3, 0.016],
-      [0.2, 0.20, -0.3, 0.34, 3, 0.015],                    // 支裂
-      [Math.PI + 0.2, 0.24, Math.PI + 0.6, 0.38, 3, 0.015],
-    ]);
-  }
-  const rig = buildGolem(spec, mats, actor);
+  const G = magmaGeometry(P);
+  const rig = buildGolemRig(spec, mats, actor, G);
   const { add, count } = rig.tools;
-  // 关节缝渗光（eye 槽小件，肩/髋缝一圈）：读作「岩石拼合处透出炉光」
+  // 双岩刺角（后弯长刺，noHit 细长装饰件铁律）+ 关节缝渗光（黑岩拼缝透炉光）
+  const horns = prims(WRAP_TILES);
+  for (const s of [-1, 1]) {
+    horns.cyl(0, 0.035, 0.30, { x: s * P.headW * 0.42, y: P.headH * 0.72, z: -P.headD * 0.1, rx: -0.7, rz: -s * 0.5, radial: 5 });
+  }
+  add(rig.neck, horns.build(), mats.wrapDark, 'head', true);
   const seams = prims(WRAP_TILES);
   for (const s of [-1, 1]) {
     seams.ellipsoid(0.035, 0.022, 0.035, { x: s * P.shoulderX, y: P.torsoY + P.shoulderY - 0.06, z: 0.02, rings: 3, segs: 5 });
     seams.ellipsoid(0.030, 0.020, 0.030, { x: s * P.legX, y: -0.04, z: 0.04, rings: 3, segs: 5 });
   }
-  const seamGeo = seams.build();
-  add(rig.torso, seamGeo, mats.eye, 'body', true);    // 细长渗光件 noHit
+  add(rig.torso, seams.build(), mats.eye, 'body', true);    // 细长渗光件 noHit
   rig.triangles = count();
   return rig;
 }
@@ -440,94 +419,143 @@ export const MAGMAGOLEM = {
   name: 'Magmagolem（熔岩魔像）',
 
   speed: 0.7,            // Boss 的缓慢逼近
-  scale: 2.3,            // Boss 梯队：> bonebrute 2.3 平级、< draco 2.8 铁律
-  height: 4.2,
+  scale: 2.3,            // Boss 梯队：bonebrute 平级、< draco 2.8 铁律
+  height: 4.4,
   radius: 0.85,
 
   palette: {
     wrap: 0x1e1b1c,      // 黑玄武岩
-    wrapDark: 0x322c2e,  // 深灰黑（腿/臂/肩岩）
+    wrapDark: 0x322c2e,  // 深灰黑（腿/臂/肩峰/下颌岩）
     deep: 0x0c0a0c,
-    eye: 0xff5a16,       // 熔岩橙红（裂缝/目缝/核心/关节渗光同槽）
+    eye: 0xff5a16,       // 熔岩橙红（裂缝/嘴缝/目缝/关节渗光同槽）
     eyeGlow: 1.05,       // 裂缝要透出近黑岩面（draco 1.1 同款定档）
-    accent: 0x3c3638,    // 玄武岩甲板
-    accentRough: 0.8,
-    accentMetal: 0.1,
+    accent: 0x3c3638,
     tatter: 0x2c282a,
   },
 
   proportions: {
-    hipY: 1.06, hipW: 0.60, bodyD: 0.54,
-    legX: 0.22, legW: 0.24, thighL: 0.53, shinL: 0.53,   // hipY=thighL+shinL，铁律
-    torsoY: 0.12, chestW: 0.84, chestH: 0.78,
+    hipY: 1.10, hipW: 0.52, bodyD: 0.50,          // 高大：腿长桶高
+    legX: 0.20, legW: 0.22, thighL: 0.54, shinL: 0.56,   // hipY=thighL+shinL，铁律
+    torsoY: 0.10, chestW: 0.94, chestH: 0.92,     // 倒三角大桶
     torsoProfile: MAGMA_PROFILE,
-    shoulderX: 0.48, shoulderY: 0.58, shoulderRockR: 0.19,
-    armW: 0.17, upperL: 0.52, foreL: 0.58, fistW: 1.8,
-    headY: 0.95, headW: 0.23, headH: 0.27, headD: 0.25,
-    plateStyle: { w: 0.56, h: 0.46, t: 0.05 },
+    shoulderX: 0.50, shoulderY: 0.72,
+    armW: 0.16, upperL: 0.54, foreL: 0.60, fistW: 1.9,
+    headY: 1.10, headW: 0.26, headH: 0.30, headD: 0.27,   // 头抬出肩峰线（爆头可达铁律）
+    footW: 1.6,
     crackMat: 'eye',
     tatterRest: 0,
     tatters: [],
   },
 
   gait: {
-    rate: 0.58,
-    stride: 0.50,
+    rate: 0.56,
+    stride: 0.52,
     armSwing: 0.24,
     armReach: 0.06,
-    armSplay: 0.32,
+    armSplay: 0.30,
     elbowBend: -0.06,
     lean: -0.04,
-    sway: 0.12,
+    sway: 0.11,
     hipTwist: 0.04,
     bob: 0.09,
     headLoll: 0.04,
-    headDroop: -0.12,
+    headDroop: -0.08,
   },
 
-  makeMaterials: (spec, rng) => makeZombieMaterialsFrom(spec, linenMaps(), rng),
   windupLean: 0.08,
+  makeMaterials: (spec, rng) => makeZombieMaterialsFrom(spec, linenMaps(), rng),
   build: buildMagmagolem,
   animate: golemAnimate,
 };
 
 // ---------------------------------------------------------------------------
-// 物种三：冰霜魔像 frostgolem —— 苍白冰塔（苍白蓝冰岩 + 冰白发光裂纹 +
-// 半透明冰晶甲板/冰锥饰件——wraith 趟过的半透明方案：transparent +
-// depthWrite:false；accent 单面不涉及双面双 pass 问题）
+// 物种三：冰霜魔像 frostgolem —— 瘦高冰塔（棱柱/冰柱感躯干 + 细长四肢带
+// 冰锥 + 光滑无面冰面 + 双冰蓝眼 + 冰锥冠；冰白霜纹克制 0.6）
 // ---------------------------------------------------------------------------
 
-const FROST_PROFILE = [[0.001, -0.02], [0.28, 0.02], [0.36, 0.22], [0.38, 0.44],
-  [0.33, 0.62], [0.23, 0.72], [0.001, 0.76]];
+const FROSTGEO2 = new Map();
+
+/** 瘦高冰柱：细收长桶（上微收的棱柱读法） */
+const FROST_PROFILE = [[0.001, -0.02], [0.22, 0.02], [0.27, 0.26], [0.28, 0.52],
+  [0.26, 0.74], [0.20, 0.86], [0.001, 0.92]];
+
+function frostGeometry(P) {
+  let out = FROSTGEO2.get(P);
+  if (out) return out;
+  const T = WRAP_TILES;
+  out = {};
+  {
+    const p = parts(T);
+    p.box(P.hipW, 0.26, P.bodyD * 0.85, { y: 0.02, top: 1.0, bottom: 0.85 });
+    out.pelvis = p.build();
+  }
+  Object.assign(out, limbGeometry(T, P));
+  {
+    const p = prims(T);
+    p.lathe(P.torsoProfile, { segs: 8 });   // 少分段 = 棱柱面读法
+    out.torso = p.build();
+    // 肩冰棱（小而挺，瘦高体的肩线标记）
+    const pk = prims(T);
+    for (const s of [-1, 1]) {
+      pk.ellipsoid(0.13, 0.11, 0.13, { x: s * P.shoulderX * 0.85, y: P.chestH * 0.90, z: 0, rings: 4, segs: 6 });
+    }
+    out.shoulderRock = pk.build();
+  }
+  {
+    // 光滑无面冰面（无下颌无眉檐的光颅——「没有脸」就是它的脸）+ 双冰蓝眼
+    const p = prims(T);
+    p.ellipsoid(P.headW * 0.50, P.headH * 0.50, P.headD * 0.48, { y: P.headH * 0.48, rings: 5, segs: 8 });
+    out.skull = p.build();
+    const pe = prims(T);
+    for (const s of [-1, 1]) {
+      pe.ellipsoid(0.024, 0.030, 0.018, { x: s * P.headW * 0.20, y: P.headH * 0.52, z: P.headD * 0.46, rings: 3, segs: 6 });
+    }
+    out.eyes = pe.build();
+    out.headDark = null;
+  }
+  {
+    // 冰白霜纹/冻裂纹（eye 槽克制 0.6）：细枝多分叉，冰面结晶的蕨状读法
+    out.cracks = surfaceStrips(20260829, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
+      [0.35, 0.06, 0.1, 0.72, 6, 0.011],
+      [Math.PI - 0.35, 0.04, Math.PI - 0.1, 0.70, 6, 0.011],
+      [Math.PI * 0.5, 0.08, Math.PI * 0.52, 0.74, 5, 0.013],
+      [0.85, 0.24, 0.4, 0.48, 4, 0.008],                    // 蕨状细分叉
+      [Math.PI - 0.85, 0.26, Math.PI - 0.4, 0.50, 4, 0.008],
+      [0.2, 0.50, -0.25, 0.66, 3, 0.008],
+      [Math.PI + 0.2, 0.52, Math.PI + 0.5, 0.68, 3, 0.008],
+    ]);
+  }
+  FROSTGEO2.set(P, out);
+  return out;
+}
 
 export function buildFrostgolem(spec, mats, actor) {
   const P = spec.proportions;
-  const G = golemGeometry(P);
-  if (!G.cracks) {
-    // 冰白发光裂纹（eye 槽；比熔岩细纹窄一号，冰面裂纹读法）
-    G.cracks = surfaceStrips(20260829, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
-      [0.45, 0.04, 0.1, 0.58, 6, 0.016],
-      [Math.PI - 0.45, 0.06, Math.PI - 0.08, 0.56, 6, 0.016],
-      [Math.PI * 0.5, 0.08, Math.PI * 0.55, 0.60, 5, 0.018],
-      [0.85, 0.30, 0.3, 0.44, 3, 0.011],
-      [Math.PI - 0.85, 0.28, Math.PI - 0.25, 0.42, 3, 0.011],
-    ]);
-  }
-  const rig = buildGolem(spec, mats, actor);
+  const G = frostGeometry(P);
+  const rig = buildGolemRig(spec, mats, actor, G);
   const { add, count } = rig.tools;
-  // 肩背冰锥簇（accent 半透明冰件；装饰 noHit）：冰塔剪影的「塔尖」读法
-  const sp = prims(WRAP_TILES);
-  for (const s of [-1, 1]) {
-    sp.cyl(0, 0.05, 0.30, { x: s * P.shoulderX * 0.95, y: P.chestH * 1.02, z: -0.06, rx: -0.4, rz: -s * 0.5, radial: 5 });
-    sp.cyl(0, 0.035, 0.20, { x: s * P.shoulderX * 0.7, y: P.chestH * 1.05, z: 0.08, rx: 0.2, rz: -s * 0.3, radial: 5 });
+  // 冰锥冠（头顶一圈四根冰刺，noHit）+ 肘冰锥（细长四肢的「冰刺骨节」）
+  const crown = prims(WRAP_TILES);
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + 0.4;
+    crown.cyl(0, 0.024, 0.16 - (k % 2) * 0.04, {
+      x: Math.cos(a) * P.headW * 0.30, y: P.headH * 0.92, z: Math.sin(a) * P.headW * 0.30,
+      rx: Math.sin(a) * 0.45, rz: -Math.cos(a) * 0.45, radial: 4 });
   }
-  sp.cyl(0, 0.04, 0.26, { x: 0, y: P.chestH * 0.98, z: -0.24, rx: -0.7, radial: 5 });
-  add(rig.torso, sp.build(), mats.accent, 'body', true);
+  add(rig.neck, crown.build(), mats.accent, 'head', true);
+  const spikes = prims(WRAP_TILES);
+  for (const side of [-1, 1]) {
+    // 肘冰锥（挂肘关节，向外挑）
+    spikes.cyl(0, 0.030, 0.20, { x: side * 0.06, y: 0.0, z: -0.02, rx: -0.5, rz: -side * 0.9, radial: 4 });
+  }
+  const spikeGeo = spikes.build();
+  add(rig.arms[0].elbow, spikeGeo, mats.accent, 'arm', true);
+  add(rig.arms[1].elbow, spikeGeo, mats.accent, 'arm', true);
   rig.triangles = count();
   return rig;
 }
 
-/** 冰霜材质：基底六槽照常，accent 槽（冰甲板/冰锥）换半透明冰 */
+/** 冰霜材质：基底六槽照常，accent 槽（冰锥冠/肘刺）换半透明冰 */
 function makeFrostMaterials(spec, rng) {
   const mats = makeZombieMaterialsFrom(spec, linenMaps(), rng);
   mats.accent.transparent = true;
@@ -543,103 +571,144 @@ export const FROSTGOLEM = {
 
   speed: 0.85,
   scale: 1.5,
-  height: 2.9,
-  radius: 0.60,
+  height: 3.3,           // 瘦高：比 rockgolem 高半米但细一圈
+  radius: 0.52,
 
   palette: {
     wrap: 0xc8d8e2,      // 苍白蓝冰岩
     wrapDark: 0x8aa2b2,  // 灰蓝冰
     deep: 0x1a2430,
-    eye: 0xd8f4ff,       // 冰白发光（裂纹/目缝/核心同槽）
-    eyeGlow: 0.8,
-    accent: 0xbfe0f0,    // 半透明冰甲板/冰锥（makeFrostMaterials 换透明）
+    eye: 0xd8f4ff,       // 冰白发光（霜纹/双眼同槽，克制）
+    eyeGlow: 0.6,
+    accent: 0xbfe0f0,    // 冰锥冠/肘刺（半透冰件由 makeFrostMaterials 换透明）
     accentRough: 0.25,
     accentMetal: 0.0,
     tatter: 0x8aa2b2,
   },
 
   proportions: {
-    hipY: 1.04, hipW: 0.52, bodyD: 0.48,
-    legX: 0.19, legW: 0.21, thighL: 0.51, shinL: 0.53,   // hipY=thighL+shinL，铁律
-    torsoY: 0.12, chestW: 0.76, chestH: 0.74,
+    hipY: 1.12, hipW: 0.44, bodyD: 0.40,          // 瘦高：腿长桶细
+    legX: 0.15, legW: 0.16, thighL: 0.55, shinL: 0.57,   // hipY=thighL+shinL，铁律
+    torsoY: 0.10, chestW: 0.56, chestH: 0.90,     // 细高冰柱桶
     torsoProfile: FROST_PROFILE,
-    shoulderX: 0.43, shoulderY: 0.54, shoulderRockR: 0.16,
-    armW: 0.15, upperL: 0.50, foreL: 0.54, fistW: 1.6,
-    headY: 0.92, headW: 0.21, headH: 0.25, headD: 0.23,
-    plateStyle: { w: 0.50, h: 0.42, t: 0.04 },
+    shoulderX: 0.32, shoulderY: 0.74,
+    armW: 0.11, upperL: 0.56, foreL: 0.60, fistW: 1.4,   // 细长臂小拳
+    headY: 1.02, headW: 0.20, headH: 0.26, headD: 0.22,
+    footW: 1.2,
     crackMat: 'eye',
     tatterRest: 0,
     tatters: [],
   },
 
   gait: {
-    rate: 0.68,
-    stride: 0.52,
-    armSwing: 0.25,
+    rate: 0.7,
+    stride: 0.55,          // 大长腿步幅大
+    armSwing: 0.28,
     armReach: 0.04,
-    armSplay: 0.28,
-    elbowBend: -0.08,
-    lean: -0.05,
-    sway: 0.12,
+    armSplay: 0.20,
+    elbowBend: -0.10,
+    lean: -0.03,           // 冰塔最直
+    sway: 0.09,
     hipTwist: 0.05,
-    bob: 0.08,
-    headLoll: 0.05,
-    headDroop: -0.08,
+    bob: 0.06,
+    headLoll: 0.04,
+    headDroop: -0.05,
   },
 
-  makeMaterials: makeFrostMaterials,
   windupLean: 0.08,
+  makeMaterials: makeFrostMaterials,
   build: buildFrostgolem,
   animate: golemAnimate,
 };
 
 // ---------------------------------------------------------------------------
-// 物种四：水晶魔像 crystalgolem —— 紫晶悬浮（暗紫岩身 + 紫晶簇 + 悬浮碎晶环
-// 绕肩缓转 + 半悬浮巨物：fly 悬浮支 flapAmp=0，石柱腿垂落，死亡走失速螺旋
-// 坠落。装甲板同款四板机制）
+// 物种四：水晶魔像 crystalgolem —— 晶簇聚合体（中等身材半悬浮：躯干由晶簇
+// 拼成、无常规腿型（垂落晶柱）+ 悬浮大水晶当头 + 碎晶环绕转；紫青晶脉）
 // ---------------------------------------------------------------------------
 
-const CRYSTAL_PROFILE = [[0.001, -0.02], [0.30, 0.02], [0.37, 0.22], [0.39, 0.44],
-  [0.33, 0.62], [0.24, 0.72], [0.001, 0.76]];
+const CRYSTALGEO = new Map();
 
 function crystalGeometry(P) {
-  const G = golemGeometry(P);
-  if (G.ringShards) return G;
+  let out = CRYSTALGEO.get(P);
+  if (out) return out;
   const T = WRAP_TILES;
-  if (!G.cracks) {
-    // 紫青发光脉络（eye 槽）：比裂纹更直的「晶脉」读法（低抖动）
-    G.cracks = surfaceStrips(20260830, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
-      [0.4, 0.06, 0.1, 0.60, 6, 0.014, 0.12],
-      [Math.PI - 0.4, 0.08, Math.PI - 0.06, 0.58, 6, 0.014, 0.12],
-      [Math.PI * 0.5, 0.10, Math.PI * 0.55, 0.58, 5, 0.016, 0.12],
-      [0.9, 0.56, 1.25, 0.68, 3, 0.010, 0.12],
-      [Math.PI - 0.9, 0.54, Math.PI - 1.25, 0.66, 3, 0.010, 0.12],
-    ]);
-  }
+  out = {};
   {
-    // 晶簇（accent 紫晶；肩/背锥簇，装饰 noHit）
+    // 躯干：岩核小桶 + 晶簇拼壳（多根高低不一的水晶棱柱从核上长出——
+    // 「躯干由晶簇拼成」的读法：侧视高低错落的尖顶线）
     const p = prims(T);
+    p.lathe(P.torsoProfile, { segs: 8 });
+    out.torso = p.build();
+    const pk = prims(T);
+    // 主簇：胸前两大棱晶 + 肩背三簇 + 顶心一根主晶柱
+    pk.cyl(0.02, 0.09, 0.42, { x: 0.10, y: P.chestH * 0.75, z: 0.16, rx: 0.5, rz: -0.4, radial: 5 });
+    pk.cyl(0.02, 0.08, 0.36, { x: -0.12, y: P.chestH * 0.70, z: 0.14, rx: 0.4, rz: 0.5, radial: 5 });
     for (const s of [-1, 1]) {
-      p.cyl(0, 0.055, 0.32, { x: s * P.shoulderX * 0.95, y: P.chestH * 1.0, z: 0.02, rx: -0.2, rz: -s * 0.55, radial: 5 });
-      p.cyl(0, 0.04, 0.22, { x: s * P.shoulderX * 0.72, y: P.chestH * 0.94, z: -0.14, rx: -0.6, rz: -s * 0.25, radial: 5 });
-      p.cyl(0, 0.030, 0.16, { x: s * P.shoulderX * 0.6, y: P.chestH * 0.8, z: 0.16, rx: 0.4, rz: -s * 0.4, radial: 4 });
+      pk.cyl(0.02, 0.10, 0.46, { x: s * P.shoulderX * 0.8, y: P.chestH * 0.82, z: -0.06, rx: -0.35, rz: -s * 0.6, radial: 5 });
+      pk.cyl(0.015, 0.06, 0.28, { x: s * P.shoulderX * 0.55, y: P.chestH * 0.70, z: 0.14, rx: 0.45, rz: -s * 0.35, radial: 4 });
     }
-    p.cyl(0, 0.045, 0.28, { x: 0, y: P.chestH * 0.9, z: -0.26, rx: -0.75, radial: 5 });
-    G.clusters = p.build();
+    pk.cyl(0.02, 0.11, 0.5, { x: 0, y: P.chestH * 0.95, z: -0.10, rx: -0.5, radial: 5 });
+    out.clusters = pk.build();
   }
   {
-    // 悬浮碎晶环（破布槽 spin 通道）：五片菱晶绕肩线一圈，pivot 局部系
+    // 头：悬浮大水晶（菱锥八面体，无下颚——整块晶体当头，岩颈很短）
+    const p = prims(T);
+    p.cyl(0.03, 0.05, 0.10, { y: 0.0, radial: 5 });                        // 岩颈
+    p.cyl(0, 0.14, 0.20, { y: 0.20, radial: 6 });                          // 上锥
+    p.cyl(0.14, 0, 0.16, { y: 0.02, radial: 6, capTop: false });           // 下锥
+    out.skull = p.build();
+    // 晶体腰部发光环带（eye 槽：晶核透光读法）
+    const pe = prims(T);
+    pe.cyl(0.145, 0.145, 0.030, { y: 0.11, radial: 6, capTop: false, capBot: false });
+    out.eyes = pe.build();
+    out.headDark = null;
+  }
+  {
+    // 垂落晶柱（代替腿型：两根短晶柱挂躯干下，fly.legs 通道微摆）
+    const p = prims(T);
+    p.cyl(0.02, P.legW * 0.5, P.thighL, { y: -P.thighL / 2, radial: 5 });
+    out.thigh = p.build();
+    const ps = prims(T);
+    ps.cyl(P.legW * 0.45, 0, P.shinL, { y: -P.shinL / 2, radial: 5, capTop: false });
+    out.shin = ps.build();
+  }
+  {
+    // 臂：岩臂 + 晶拳簇
+    const p = parts(T);
+    p.box(P.armW * 1.2, P.upperL, P.armW * 1.15, { y: -P.upperL / 2, top: 1.15, bottom: 0.88 });
+    out.upper = p.build();
+    const pf = parts(T);
+    pf.box(P.armW * 1.3, P.foreL, P.armW * 1.25, { y: -P.foreL / 2, top: 0.9, bottom: 1.05 });
+    out.foreBase = pf.build();
+    const pk = prims(T);
+    pk.cyl(0.015, 0.07, 0.22, { y: -P.foreL - 0.08, rx: 0.3, radial: 5 });
+    pk.cyl(0.015, 0.05, 0.16, { x: 0.05, y: -P.foreL - 0.06, rz: -0.5, radial: 4 });
+    pk.cyl(0.015, 0.05, 0.16, { x: -0.05, y: -P.foreL - 0.06, rz: 0.5, radial: 4 });
+    out.fistCrystal = pk.build();
+  }
+  {
+    // 悬浮碎晶环（破布槽 spin 通道）：五片菱晶绕肩线一圈
     const p = prims(T);
     for (let k = 0; k < 5; k++) {
       const a = (k / 5) * Math.PI * 2;
       const R = 0.62;
-      // 菱形双锥（两段锥台对接）
       p.cyl(0, 0.045, 0.10, { x: Math.cos(a) * R, y: 0.055, z: Math.sin(a) * R, radial: 5, capBot: false });
       p.cyl(0.045, 0, 0.10, { x: Math.cos(a) * R, y: -0.055, z: Math.sin(a) * R, radial: 5, capTop: false });
     }
-    G.ringShards = p.build();
+    out.ringShards = p.build();
   }
-  return G;
+  {
+    // 紫青晶脉（eye 槽 0.9）：岩核桶面上的晶格线（低抖动长流线）
+    out.cracks = surfaceStrips(20260830, makeBarrelSurf(mkRadiusFn(P.torsoProfile)), [
+      [0.35, 0.04, 0.1, 0.62, 6, 0.013, 0.12],
+      [Math.PI - 0.35, 0.06, Math.PI - 0.08, 0.60, 6, 0.013, 0.12],
+      [Math.PI * 0.5, 0.06, Math.PI * 0.52, 0.62, 5, 0.015, 0.12],
+      [0.85, 0.30, 0.3, 0.48, 3, 0.009, 0.12],
+      [Math.PI - 0.85, 0.28, Math.PI - 0.25, 0.46, 3, 0.009, 0.12],
+    ]);
+  }
+  CRYSTALGEO.set(P, out);
+  return out;
 }
 
 export function buildCrystalgolem(spec, mats, actor) {
@@ -658,28 +727,24 @@ export function buildCrystalgolem(spec, mats, actor) {
   hips.add(torso);
 
   const jw = 0.94 + R() * 0.12;
-  add(hips, G.pelvis, mats.wrapDark, 'body').scale.set(jw, 1, 1);
   add(torso, G.torso, mats.wrap, 'body').scale.set(jw, 1, 1);
-  add(torso, G.shoulderRock, mats.wrapDark, 'body').scale.set(jw, 1, 1);
+  add(torso, G.clusters, mats.accent, 'body', true);         // 晶簇壳 noHit 装饰
   add(torso, G.cracks, mats.eye, 'body', true);              // 晶脉 noHit
-  add(torso, G.clusters, mats.accent, 'body', true);         // 晶簇装饰 noHit
-  const mc = add(torso, G.core, mats.eye, 'body');
-  mc.userData.region = 'core';
 
-  // 垂落的石柱腿（fly.legs 通道微摆）
+  // 垂落晶柱腿（fly.legs 通道微摆）
   const legs = [];
   for (const side of [-1, 1]) {
     const hip = new THREE.Group();
-    hip.position.set(side * P.legX * jw, 0, 0);
-    hips.add(hip);
-    add(hip, G.thigh, mats.wrap, 'body');
+    hip.position.set(side * P.legX * jw, -0.06, 0);
+    torso.add(hip);
+    add(hip, G.thigh, mats.wrapDark, 'body');
     const knee = new THREE.Group();
     knee.position.y = -P.thighL;
     hip.add(knee);
-    add(knee, G.shin, mats.wrapDark, 'body');
+    add(knee, G.shin, mats.accent, 'body');
     legs.push({ hip, knee, side });
   }
-  // 巨石臂（静态垂落，姿态烘进几何；flapAmp=0 时臂通道静默）
+  // 岩臂 + 晶拳簇（静态垂落，姿态烘进几何；flapAmp=0 时臂通道静默）
   const arms = [];
   for (const side of [-1, 1]) {
     const mount = new THREE.Group();
@@ -692,44 +757,23 @@ export function buildCrystalgolem(spec, mats, actor) {
     const elbow = new THREE.Group();
     elbow.position.y = -P.upperL;
     shoulder.add(elbow);
-    add(elbow, G.fore, mats.wrapDark, 'body');
+    add(elbow, G.foreBase, mats.wrapDark, 'body');
+    add(elbow, G.fistCrystal, mats.accent, 'body', true);   // 晶拳 noHit
     arms.push({ shoulder, elbow, side });
   }
 
-  // 装甲板四块（与行走魔像同契约：ARM2/EL2 槽）
-  const rFn = mkRadiusFn(P.torsoProfile);
-  const chestP = new THREE.Group();
-  chestP.position.set(0, P.chestH * 0.60, rFn(P.chestH * 0.60) * jw + 0.035);
-  torso.add(chestP);
-  add(chestP, G.plateChest, mats.accent, 'body').userData.plate = true;
-  const bellyP = new THREE.Group();
-  bellyP.position.set(0, -P.chestH * 0.40, -0.02);
-  chestP.add(bellyP);
-  add(bellyP, G.plateBelly, mats.accent, 'body').userData.plate = true;
-  const backP = new THREE.Group();
-  backP.position.set(0, P.chestH * 0.60, -rFn(P.chestH * 0.60) * jw - 0.035);
-  torso.add(backP);
-  add(backP, G.plateBack, mats.accent, 'body').userData.plate = true;
-  const mantleP = new THREE.Group();
-  mantleP.position.set(0, P.chestH * 0.30, 0.02);
-  backP.add(mantleP);
-  add(mantleP, G.plateMantle, mats.accent, 'body').userData.plate = true;
-  arms[2] = { shoulder: chestP, elbow: bellyP, side: -1 };
-  arms[3] = { shoulder: backP, elbow: mantleP, side: 1 };
-
-  // 头（岩颅 + 紫晶目缝）
+  // 头：悬浮大水晶（晶簇顶上的整块菱锥；头盒心探出躯干盒顶）
   const neck = new THREE.Group();
   neck.position.y = P.headY;
   torso.add(neck);
-  add(neck, G.skull, mats.wrap, 'head');
-  add(neck, G.brow, mats.wrapDark, 'head');
+  add(neck, G.skull, mats.accent, 'head');
   add(neck, G.eyes, mats.eye, 'head');
 
   // 悬浮碎晶环：破布槽 spin 通道（fillFly/animateFlyer 双端同款）
   const tatters = [];
   {
     const pivot = new THREE.Group();
-    pivot.position.set(0, P.chestH * 0.72, 0);
+    pivot.position.set(0, P.chestH * 0.78, 0);
     torso.add(pivot);
     add(pivot, G.ringShards, mats.accent, 'body', true);   // 环片全 noHit
     tatters.push({ pivot, restZ: 0, phase: 0, swing: 1, spin: P.tatters[0].spin });
@@ -756,31 +800,31 @@ export const CRYSTALGOLEM = {
 
   speed: 1.1,            // 悬浮滑行比走快一档
   scale: 1.7,
-  height: 3.2,
-  radius: 0.65,
-  flyY: 0.9,             // 半悬浮：垂腿距地 ~0.3m（读作「浮不起来的巨物」）
+  height: 3.1,
+  radius: 0.62,
+  flyY: 0.85,            // 半悬浮：晶柱距地 ~0.3m（读作「浮不起来的巨物」）
 
   palette: {
-    wrap: 0x4a4258,      // 暗紫岩身
+    wrap: 0x4a4258,      // 暗紫岩核
     wrapDark: 0x342e40,  // 深紫岩
     deep: 0x16121e,
-    eye: 0xb08aff,       // 紫青晶脉/目缝/核心同槽
+    eye: 0xb08aff,       // 紫青晶脉/晶头环带同槽
     eyeGlow: 0.9,
-    accent: 0x7a5ac8,    // 紫水晶簇/碎晶环/甲板
+    accent: 0x7a5ac8,    // 紫水晶（晶簇/晶柱/晶头/碎晶环/晶拳同槽）
     accentRough: 0.35,
     accentMetal: 0.3,
     tatter: 0x342e40,
   },
 
   proportions: {
-    hipW: 0.54, bodyD: 0.50,
-    legX: 0.20, legW: 0.21, thighL: 0.50, shinL: 0.52,
-    torsoY: 0.10, chestW: 0.78, chestH: 0.75,
-    torsoProfile: CRYSTAL_PROFILE,
-    shoulderX: 0.44, shoulderY: 0.55, shoulderRockR: 0.17,
-    armW: 0.155, upperL: 0.50, foreL: 0.55, fistW: 1.7,
-    headY: 0.97, headW: 0.21, headH: 0.25, headD: 0.23,
-    plateStyle: { w: 0.52, h: 0.44, t: 0.045 },
+    hipW: 0.5, bodyD: 0.48,
+    legX: 0.16, legW: 0.16, thighL: 0.30, shinL: 0.34,   // 垂落晶柱（非常规腿）
+    torsoY: 0.08, chestW: 0.66, chestH: 0.72,
+    torsoProfile: [[0.001, -0.02], [0.24, 0.02], [0.30, 0.22], [0.32, 0.44],
+      [0.28, 0.58], [0.20, 0.68], [0.001, 0.72]],
+    shoulderX: 0.36, shoulderY: 0.56,
+    armW: 0.13, upperL: 0.46, foreL: 0.50,
+    headY: 0.86, headW: 0.22, headH: 0.40, headD: 0.22,  // 大水晶头（含上下锥）
     crackMat: 'eye',
     tatterRest: 0,
     tatters: [{ x: 0, y: 0, z: 0, w: 0, h: 0, spin: 0.7 }],   // 碎晶环自旋速率
@@ -793,13 +837,13 @@ export const CRYSTALGOLEM = {
       flapRate: 0,       // 无翼悬浮（时钟兜底 0.9Hz，fillFly 除零护栏）
       flapAmp: 0,
       bobAmp: 0.07, bobRate: 0.8,
-      weave: 0.04, pitch: 0.02,   // 巨物姿态稳
+      weave: 0.04, pitch: 0.02,
       wingPairs: 0,
-      legs: true, legDangle: 0.12, legBend: 0.25,   // 垂落石柱腿微摆
+      legs: true, legDangle: 0.10, legBend: 0.15,   // 垂落晶柱微摆
       headUp: -0.06, headScan: 0.3,
-      windupLean: 0.10,      // 悬浮巨物蓄力仰身压小（胸甲随仰身后甩的同款坑）
+      windupLean: 0.10,      // 悬浮巨物蓄力仰身压小
       hoverPitch: -0.03,
-      hoverHeadUp: 0.10,          // 悬停低头俯视（精英的压迫感）
+      hoverHeadUp: 0.10,
     },
   },
 
