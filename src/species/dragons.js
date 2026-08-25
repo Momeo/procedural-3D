@@ -183,6 +183,9 @@ function surfaceStrips(seed, surf, specs) {
   return quadStrips(quads);
 }
 
+// golem.js 复用贴面游走器全家桶（导出不影响本文件内部引用）
+export { quadStrips, surfaceStrips, mkRadiusFn, makeLatheSurf, makeEllipsoidSurf };
+
 // ---------------------------------------------------------------------------
 // 共享：龙骨架装配（G 几何字典 + D 布局尺寸 → rig）
 // G: torso, neckSeg, skull, snout, horns, eyes, wingShBone, wingShMem?,

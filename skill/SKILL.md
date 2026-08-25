@@ -35,6 +35,14 @@ the horde, and is fully hittable/dismemberable.
      `strut`/`boneSeg`/`boneSegTwin`/`ribCage`/`skullGeo`; quadruped hound reuses the
      `'centaur'` gait with empty `arms`; wraith/lich hover on the `flapAmp=0` flyer
      branch; the wraith is the translucent one — see Pitfalls)
+   - golem (elite/boss, breakable armor) → `src/species/golem.js` (chunky barrel
+     humanoids on the stock gait via `golemAnimate`; **breakable armor plates**:
+     four plates on dedicated pivots registered into the ARM2/EL2 extended joint
+     slots, `userData.plate` / `region:'core'` part overrides at bake, shooter-side
+     per-joint hit counter reusing the severMask path, and mask-aware hit skipping
+     in hitvol.js — severed/dropped subtrees no longer ghost-block shots;
+     crystalgolem hovers on the `flapAmp=0` flyer branch with a spin-ring of
+     crystal shards on the tatter channel)
 3. **Write the spec tables** (contracts below). Respect the iron rule
    `hipY = thighL + shinL` or the feet float.
 4. **Textures** (optional): follow the wraps.js/zombie.js canvas paradigm — draw albedo
@@ -115,6 +123,18 @@ slowing to a hover (draco uses -0.20 / +0.32 for the looming Smaug pose).
   `calls = Σparts + 2` horde contract (+1 per species); set
   `material.forceSinglePass = true` (the tatter slot is the only double-sided
   one). Keep translucency rare — it is the wraith's signature, not a series default.
+  Single-sided transparent parts (frostgolem's ice plates) never double-render;
+  only DoubleSide needs the flag.
+- **Pivots registered into extended joint slots are animated as limbs**:
+  `animateHumanoid` iterates *all* of `rig.arms` — a plate pivot in `arms[2]`
+  without a `bias` field gets `reach = NaN` and its matrix goes NaN (the plate
+  vanishes). Reset wrapper pivots to bind identity after the stock animate call
+  (`golemAnimate` does exactly this). The instanced path is immune: unwritten
+  texture rows read as the zero quaternion, which is the identity through the
+  hQrot/hT accumulation math.
+- **A plate must actually cover the core**: verified by screenshots, not by
+  intent — a plate drooping too low leaves the core peeking over its top edge
+  and the whole break-to-expose mechanic is moot (caught on camera in round one).
 
 ## Surface detailing (decal-strip paradigm)
 

@@ -7,7 +7,7 @@
 Everything is generated in code: geometry, textures, materials, animation. No model files,
 no texture files, no build step — plain ES modules with a single peer dependency (`three`).
 
-- **25 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons and 6 undead) driven by pure-data specs
+- **29 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons, 6 undead and 4 golems) driven by pure-data specs
   (palette / proportions / gait) — a new monster is a new table, not new machinery.
 - **Flyer support**: `gait.kind = 'fly'` wing-flap/hover gaits (two wing pairs on the
   extended joint slots, wingless hover with a spin-ring on the tatter channel), cruise
@@ -20,6 +20,13 @@ no texture files, no build step — plain ES modules with a single peer dependen
   on the centaur gait, a translucent hovering wraith (transparency that survives the
   instancing path), a robed lich with staff and chest soul-fire, an armoured grave
   knight and a boss-tier bone colossus (scale 2.3, under draco's 2.8).
+- **Golem series with breakable armor plates**: elite/boss-tier rock/magma/frost/
+  crystal golems (scale 1.5–2.3). Four armor plates per golem sit on dedicated
+  pivots in the extended joint slots — each plate is its own hit box (×0.3 soak),
+  breaks off after 3 hits (same per-instance severMask path as dismemberment,
+  debris flies through the existing pool), and exposes the glowing core hit box
+  (×3, headshot tier). Mask-aware hit testing: dropped plates and severed limbs
+  stop blocking shots (hitvol.js reads the sever mask column).
 - **Horde instancing pipeline**: bake any species rig into one geometry per material and
   render hundreds of animated instances at a fixed draw-call budget — 300 mixed monsters
   in ~40–60 draw calls, independent of headcount.
@@ -44,6 +51,8 @@ no texture files, no build step — plain ES modules with a single peer dependen
 | 4 dragons (sprite/earth/frost/draco) | mix_dragon horde |
 | ![Undead lineup](docs/screenshots/undead_lineup.png) | ![Undead horde](docs/screenshots/undead_horde.png) |
 | 6 undead (trooper/hound/wraith/lich/knight/colossus) | mix_undead horde |
+| ![Golem lineup](docs/screenshots/golem_lineup.png) | ![Golem horde](docs/screenshots/golem_horde.png) |
+| 4 golems (rock/magma/frost/crystal) | mix_golem horde |
 | ![Gun pal gallery](docs/screenshots/gunpals_gallery.png) | ![First-person hold](docs/screenshots/gunpals_firstperson.png) |
 | Gun pal gallery | First-person hold (stagbite) |
 | ![Overheat state](docs/screenshots/gunpals_overheat.png) | ![Dismemberment & ragdoll](docs/screenshots/dismember_ragdoll.png) |
@@ -95,7 +104,7 @@ Or serve the repository root over HTTP (`python -m http.server`) and open `examp
 | Page | What it shows | Test hook |
 |------|---------------|-----------|
 | `examples/single.html` | Single monster viewer: species switcher, attack/stagger triggers, hit-volume overlay (`?vol=1`) | `window.__pmtk` |
-| `examples/lineup.html` | All 25 species side by side — silhouette readability check | `window.__pmtk` |
+| `examples/lineup.html` | All 29 species side by side — silhouette readability check | `window.__pmtk` |
 | `examples/horde.html` | Horde instancing: mixes & single species, 24–600 instances, `?lod=0` / `?cull=0` A/B toggles | `window.__horde` |
 | `examples/shooter.html` | FPS hitscan playground: OBB part hits, dismemberment, ragdolls, blood pools | `window.__shooter` |
 | `examples/gunpals.html` | Gun pal gallery + first-person hold (keys 1–5, I/A/F/O states) | `window.__pmtk` |
@@ -145,13 +154,14 @@ draw calls and texture writes, not fps. Single monster ≈ 1.2k triangles, 14 jo
 |----------|-----------|
 | Naive reference (per-actor `Group`s), 100 monsters | 1803 |
 | Instanced single species, 100 / 300 / 600 monsters | **8** (6 material groups + ground + grid) |
-| Species lineup, all 25 species walking side by side | **522** calls / 37.5k tris total |
+| Species lineup, all 29 species walking side by side | **610** calls / 43.4k tris total |
 | Mixed horde, 7 zombie species × 300 | **43** |
 | Mixed horde, 4 robot species × 300 | **25** |
 | Flyer horde, 4 flyer species × 300 (`mix_fly`) | **25** |
 | Dragon horde, 4 dragon species × 300 (`mix_dragon`) | **23** |
 | Undead horde, 6 undead species × 300 (`mix_undead`) | **39** |
-| Mixed horde, all 24 mix species × 300 | **144** |
+| Golem horde, 4 golem species × 300 (`mix_golem`) | **23** |
+| Mixed horde, all 28 mix species × 300 | **165** |
 | Shooter (horde + viewmodel + blood/decal pools), 300 | **42** (peak ≤ 48 with debris + ragdolls) |
 | Distance-tiered LOD animation | 115/300 joint-texture rows written at default camera; 0/300 from 55 m |
 | 2×2 grid frustum culling (camera facing away) | 228 → **55** calls, 390k → 89k tris |

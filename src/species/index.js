@@ -22,6 +22,9 @@ import { SPRITE, EARTH, FROST, DRACO } from './dragons.js';
 import {
   SKELTROOPER, BONEHOUND, WRAITH, LICH, GRAVEKNIGHT, BONEBRUTE,
 } from './undead.js';
+import {
+  ROCKGOLEM, MAGMAGOLEM, FROSTGOLEM, CRYSTALGOLEM,
+} from './golem.js';
 
 export const SPECIES = {
   zombie:     { spec: ZOMBIE,              factory: createZombie },
@@ -49,4 +52,8 @@ export const SPECIES = {
   lich:       { spec: LICH,                factory: createZombieEx },  // 尸巫：罩袍施法者 + 骨杖 + 胸口魂火
   graveknight: { spec: GRAVEKNIGHT,        factory: createZombieEx },  // 墓穴骑士：残破板甲精英 + 盾/大剑
   bonebrute:  { spec: BONEBRUTE,           factory: createZombieEx },  // 骸骨巨像：Boss 梯队 2.3x 骨刺塔
+  rockgolem:  { spec: ROCKGOLEM,           factory: createZombieEx },  // 魔像系列（golem.js）：岩石魔像，圆石桶+装甲板
+  magmagolem: { spec: MAGMAGOLEM,          factory: createZombieEx },  // 熔岩魔像：Boss 档 2.3x 黑岩裂炉
+  frostgolem: { spec: FROSTGOLEM,          factory: createZombieEx },  // 冰霜魔像：苍白冰塔+半透明冰甲
+  crystalgolem: { spec: CRYSTALGOLEM,      factory: createZombieEx },  // 水晶魔像：紫晶半悬浮+碎晶环
 };

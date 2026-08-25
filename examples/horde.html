@@ -20,10 +20,10 @@
 <body>
 <div id="panel">
   <b>Horde — baked single geometry + InstancedMesh</b><br>
-  <small>Default "all mix" of 24 species; series mixes (zombie/robot/flyer/dragon/undead hordes) or 25 single-species picks — one bake + joint texture per species</small>
+  <small>Default "all mix" of 28 species; series mixes (zombie/robot/flyer/dragon/undead/golem hordes) or 29 single-species picks — one bake + joint texture per species</small>
   <div style="margin:6px 0">
     Mix
-    <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button><button data-species="mix_fly">Flyers</button><button data-species="mix_dragon">Dragons</button><button data-species="mix_undead">Undead</button>
+    <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button><button data-species="mix_fly">Flyers</button><button data-species="mix_dragon">Dragons</button><button data-species="mix_undead">Undead</button><button data-species="mix_golem">Golems</button>
     <br><small>Zombie</small>
     <button data-species="zombie">zombie</button><button data-species="bloater">bloater</button><button data-species="runner">runner</button><button data-species="brute">brute</button><button data-species="screecher">screecher</button><button data-species="crawler">crawler</button><button data-species="maggot">maggot</button>
     <br><small>Robot</small>
@@ -34,6 +34,8 @@
     <button data-species="sprite">sprite</button><button data-species="earth">earth</button><button data-species="frost">frost</button><button data-species="draco">draco</button>
     <br><small>Undead</small>
     <button data-species="skeltrooper">skeltrooper</button><button data-species="bonehound">bonehound</button><button data-species="wraith">wraith</button><button data-species="lich">lich</button><button data-species="graveknight">graveknight</button><button data-species="bonebrute">bonebrute</button>
+    <br><small>Golem</small>
+    <button data-species="rockgolem">rockgolem</button><button data-species="magmagolem">magmagolem</button><button data-species="frostgolem">frostgolem</button><button data-species="crystalgolem">crystalgolem</button>
   </div>
   <div style="margin:6px 0">
     Mode
@@ -75,12 +77,12 @@ const MIX_RECIPES = {
   // ⚠ share 总和必须 ≈1.0（mixCounts 取整后超额会轮补扣减，超额太多会把
   // 小份额物种扣成负数 → Float32Array 负长崩烘焙；24 种时代踩过）
   mix: [
-    { id: 'zombie',     share: 0.18 },
-    { id: 'crawler',    share: 0.13 },
-    { id: 'runner',     share: 0.11 },
+    { id: 'zombie',     share: 0.17 },
+    { id: 'crawler',    share: 0.12 },
+    { id: 'runner',     share: 0.10 },
     { id: 'bloater',    share: 0.06 },
     { id: 'screecher',  share: 0.06 },
-    { id: 'tickbot',    share: 0.07 },
+    { id: 'tickbot',    share: 0.06 },
     { id: 'spiderbot',  share: 0.05 },
     { id: 'centaurbot', share: 0.03, min: 2 },
     { id: 'brute',      share: 0.02, min: 2 },
@@ -99,6 +101,10 @@ const MIX_RECIPES = {
     { id: 'lich',       share: 0.02, min: 1 },
     { id: 'graveknight', share: 0.02, min: 1 },
     { id: 'bonebrute',  share: 0.01, min: 1 },
+    { id: 'rockgolem',  share: 0.02, min: 1 },
+    { id: 'magmagolem', share: 0.01, min: 1 },
+    { id: 'frostgolem', share: 0.01, min: 1 },
+    { id: 'crystalgolem', share: 0.01, min: 1 },
   ],
   // 丧尸海：zombie/crawler/runner 铺底（runner 负责速度层次），
   // bloater/screecher 点缀，brute 稀有重物，maggot 蛆群点缀（0.06 档）
@@ -142,13 +148,22 @@ const MIX_RECIPES = {
     { id: 'graveknight', share: 0.10, min: 2 },
     { id: 'bonebrute',   share: 0.06, min: 1 },
   ],
+  // 魔像海：rockgolem 中坚铺底，frostgolem/crystalgolem 精英分层，
+  // magmagolem Boss 稀（min 1）——精英谱系没有炮灰位
+  mix_golem: [
+    { id: 'rockgolem',    share: 0.38 },
+    { id: 'frostgolem',   share: 0.28, min: 1 },
+    { id: 'crystalgolem', share: 0.22, min: 1 },
+    { id: 'magmagolem',   share: 0.12, min: 1 },
+  ],
 };
-const MIX_LABEL = { mix: 'All-species mix', mix_zombie: 'Zombie horde', mix_robot: 'Robot horde', mix_fly: 'Flyer horde', mix_dragon: 'Dragon horde', mix_undead: 'Undead horde' };
+const MIX_LABEL = { mix: 'All-species mix', mix_zombie: 'Zombie horde', mix_robot: 'Robot horde', mix_fly: 'Flyer horde', mix_dragon: 'Dragon horde', mix_undead: 'Undead horde', mix_golem: 'Golem horde' };
 const SINGLE_IDS = ['zombie', 'bloater', 'runner', 'brute', 'screecher', 'crawler', 'maggot',
   'tickbot', 'spiderbot', 'centaurbot', 'titan',
   'carrion', 'moth', 'hornet', 'hoverdrone',
   'sprite', 'earth', 'frost', 'draco',
-  'skeltrooper', 'bonehound', 'wraith', 'lich', 'graveknight', 'bonebrute'];
+  'skeltrooper', 'bonehound', 'wraith', 'lich', 'graveknight', 'bonebrute',
+  'rockgolem', 'magmagolem', 'frostgolem', 'crystalgolem'];
 
 const q0 = new URLSearchParams(location.search);
 const sel = q0.get('species') || 'mix';

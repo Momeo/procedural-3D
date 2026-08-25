@@ -65,8 +65,8 @@ import { makeZombieMaterialsFrom } from './zombies_ex.js';
 
 /** 两点间骨梁：cyl 局部 +Y 轴对准 a→b。欧拉 XYZ 序（M=Rx·Ry·Rz，z 先转），
  *  取 rz=acos(dy/len)、ry=atan2(dz,-dx) 即可覆盖任意方向（推导见本文件
- *  设计笔记；rx 恒 0）。 */
-function strut(p, a, b, r, radial = 5) {
+ *  设计笔记；rx 恒 0）。golem.js 复用（导出不影响本文件内部引用）。 */
+export function strut(p, a, b, r, radial = 5) {
   const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
   const len = Math.hypot(dx, dy, dz);
   if (len < 1e-6) return;

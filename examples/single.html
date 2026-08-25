@@ -23,7 +23,7 @@
   <small>spec-driven: src/core/ frozen generic engine + src/species/ data tables</small>
   <div style="margin:6px 0">
     Species
-    <button data-species="zombie">zombie</button><button data-species="bloater">bloater</button><button data-species="runner">runner</button><button data-species="brute">brute</button><button data-species="screecher">screecher</button><button data-species="crawler">crawler</button><button data-species="maggot">maggot</button><button data-species="tickbot">tickbot</button><button data-species="spiderbot">spiderbot</button><button data-species="centaurbot">centaurbot</button><button data-species="titan">titan</button><button data-species="carrion">carrion</button><button data-species="moth">moth</button><button data-species="hornet">hornet</button><button data-species="hoverdrone">hoverdrone</button><button data-species="sprite">sprite</button><button data-species="earth">earth</button><button data-species="frost">frost</button><button data-species="draco">draco</button><button data-species="skeltrooper">skeltrooper</button><button data-species="bonehound">bonehound</button><button data-species="wraith">wraith</button><button data-species="lich">lich</button><button data-species="graveknight">graveknight</button><button data-species="bonebrute">bonebrute</button>
+    <button data-species="zombie">zombie</button><button data-species="bloater">bloater</button><button data-species="runner">runner</button><button data-species="brute">brute</button><button data-species="screecher">screecher</button><button data-species="crawler">crawler</button><button data-species="maggot">maggot</button><button data-species="tickbot">tickbot</button><button data-species="spiderbot">spiderbot</button><button data-species="centaurbot">centaurbot</button><button data-species="titan">titan</button><button data-species="carrion">carrion</button><button data-species="moth">moth</button><button data-species="hornet">hornet</button><button data-species="hoverdrone">hoverdrone</button><button data-species="sprite">sprite</button><button data-species="earth">earth</button><button data-species="frost">frost</button><button data-species="draco">draco</button><button data-species="skeltrooper">skeltrooper</button><button data-species="bonehound">bonehound</button><button data-species="wraith">wraith</button><button data-species="lich">lich</button><button data-species="graveknight">graveknight</button><button data-species="bonebrute">bonebrute</button><button data-species="rockgolem">rockgolem</button><button data-species="magmagolem">magmagolem</button><button data-species="frostgolem">frostgolem</button><button data-species="crystalgolem">crystalgolem</button>
   </div>
   <div style="margin:6px 0">
     <label><input type="checkbox" id="showVol"> Show hit volumes</label>
@@ -125,7 +125,7 @@ scene.add(new THREE.GridHelper(12, 24, 0x3c4434, 0x232a1e));
 // 黄点走 rig.neck.localToWorld 真值，两者逐帧重合即证明 FK 正确
 const baked = bakeMummy(FACTORY, SPEC);
 const hitboxes = baked.hitboxes;
-const PART_COLOR = { head: 0xe84028, torso: 0x3fd05a, hips: 0x3fd05a, arm: 0x3a86ff, leg: 0x3a86ff };
+const PART_COLOR = { head: 0xe84028, torso: 0x3fd05a, hips: 0x3fd05a, arm: 0x3a86ff, leg: 0x3a86ff, plate: 0x9a9a9a, core: 0xff8a2a };
 const volGroup = new THREE.Group();
 volGroup.visible = false;
 const boxLines = [];
@@ -226,6 +226,8 @@ for (const b of document.querySelectorAll('button[data-species]')) {
 
 // --- 主循环 ---------------------------------------------------------------------
 window.__pmtk = { species, ready: false, fps: 0, calls: 0, triangles: 0 };
+// 探针：场景句柄（脱板/材质问题的可见性对拍调试用）
+window.__pmtkScene = scene;
 // 探针：动作触发 + 时码读回（_probe_attack.py 用）
 window.__pmtk.attack = doAttack;
 window.__pmtk.stagger = doStagger;

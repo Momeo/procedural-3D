@@ -1,9 +1,9 @@
 /**
- * bake.js — 把 core 人形机器（或对齐人形契约的自定义 rig）产出的一只怪烘焙成
+ * bake.js — 把 Sands 原版 createEnemy 产出的一只 shambler 烘焙成
  * 「每材质一个几何 + 每顶点关节 id」的怪海用资产。
  *
  * 原理：
- *   引擎的木乃伊是刚性盒子挂在嵌套 Group 关节上（无蒙皮），动画只是
+ *   Sands 的木乃伊是刚性盒子挂在嵌套 Group 关节上（无蒙皮），动画只是
  *   每帧写各关节的 rotation（欧拉角）。于是可以把整只怪在「全关节零旋转」
  *   的 bind pose 下烘成模型空间顶点，再给每个顶点打上它所属关节链的
  *   叶子关节 id（链是固定的：elbow 的链恒为 hips→torso→shoulder→elbow）。
@@ -14,7 +14,7 @@
  *   两侧同时出现而抵消，所以着色器只需纯旋转 + 平移，无需处理缩放。
  *   body 的 bob（每帧 position.y）不在关节链里，走纹理 0 号通道单独加。
  *
- *  core 是冻结引擎层，源码一行未改，这里只做读取与遍历。
+ *  Sands 源码一行未改，这里只做读取与遍历。
  */
 
 import * as THREE from 'three';
@@ -55,7 +55,7 @@ const PART_OF_JOINT = {
 };
 
 /**
- * 烘焙一只怪（参考 rig）。
+ * 烘焙一只 shambler。
  * @returns {{
  *   parts: Array<{ geometry: THREE.BufferGeometry, material: THREE.Material, blob: boolean }>,
  *   pivots: Float32Array,        // MAX_JOINTS*3，bind pose 模型空间 pivot
@@ -74,7 +74,7 @@ const PART_OF_JOINT = {
  */
 export function bakeMummy(createEnemy, MUMMY) {
   // build 内每条破布有 10% 概率随机缺失；重掷到全保留，让所有实例共享同一几何
-  // （壳体系 proportions 无 tatters，0 >= 0 一次通过）
+  // （scarab 系 proportions 无 tatters，0 >= 0 一次通过）
   const tatterSpec = MUMMY.proportions.tatters || [];
   let actor = null;
   for (let tries = 0; tries < 60; tries++) {
@@ -86,7 +86,7 @@ export function bakeMummy(createEnemy, MUMMY) {
   // --- 关节对象 → id 映射 -------------------------------------------------
   const jmap = new Map();
   jmap.set(rig.hips, J.HIPS);
-  // 壳体系自有 rig：hips === torso === body，
+  // scarab 系自有 rig（variants.js buildScarab）：hips === torso === body，
   // 六足甲虫只有一段躯干，body 本体就注册成 HIPS 关节并纳入链（chainOf
   // 终点随之放宽到 group），壳体的俯仰/翻滚才能进关节纹理；
   // 人形 rig 的 torso 是独立子关节，照常注册
@@ -95,7 +95,7 @@ export function bakeMummy(createEnemy, MUMMY) {
   // 双腿（可选）：无四肢物种（maggot）legs=[]，跳过
   if (rig.legs[0]) { jmap.set(rig.legs[0].hip, J.HIP_L); jmap.set(rig.legs[0].knee, J.KNEE_L); }   // side -1
   if (rig.legs[1]) { jmap.set(rig.legs[1].hip, J.HIP_R); jmap.set(rig.legs[1].knee, J.KNEE_R); }   // side +1
-  // 手臂（可选）：壳体系 arms=[]，跳过
+  // 手臂（可选）：scarab 系 arms=[]，跳过
   if (rig.arms[0]) { jmap.set(rig.arms[0].shoulder, J.SH_L); jmap.set(rig.arms[0].elbow, J.EL_L); }
   if (rig.arms[1]) { jmap.set(rig.arms[1].shoulder, J.SH_R); jmap.set(rig.arms[1].elbow, J.EL_R); }
   // 多肢体扩展（可选）：第二/三对腿、第二对手臂（rig 没有就不注册）
@@ -111,7 +111,7 @@ export function bakeMummy(createEnemy, MUMMY) {
   // --- 建立 bind pose：所有动画写入的旋转/位移归零 -------------------------
   // （twistBase / neckBase / 破布 yaw / restZ 属动画值的一部分，运行时由
   //   gait.js 按原公式完整还给关节，所以这里必须归零后再烘）
-  // 壳体系例外：body.y = 结构骑高 rideHeight 而非纯动画 bob——保留进烘焙，
+  // scarab 系例外：body.y = 结构骑高 rideHeight 而非纯动画 bob——保留进烘焙，
   // 壳体几何烘在正确高度，HIPS 关节 pivot 落在体心；运行时 bob 通道只加起伏
   const bodyBindY = rig.hips === rig.body ? (MUMMY.proportions.rideHeight || 0) : 0;
   rig.body.position.set(0, bodyBindY, 0);
@@ -142,7 +142,7 @@ export function bakeMummy(createEnemy, MUMMY) {
   const chainList = new Int32Array(MAX_JOINTS * MAX_CHAIN).fill(0);
   const chainOf = (obj) => {
     const ids = [];
-    // 终点是 group 而非 body：壳体系的 body 本身是注册的 HIPS 关节，必须
+    // 终点是 group 而非 body：scarab 系的 body 本身是注册的 HIPS 关节，必须
     // 进链；人形 rig 的 body 不在 jmap 里，向上多走一级结果与旧版逐链一致
     for (let n = obj; n && n !== rig.group; n = n.parent) {
       if (jmap.has(n)) ids.unshift(jmap.get(n));
@@ -175,11 +175,15 @@ export function bakeMummy(createEnemy, MUMMY) {
   };
   // 部件碰撞盒（hitbox）顺手收集：同叶关节的 mesh 合并成一盒，bind 模型空间
   // Box3 + 叶关节 id + 部位。破布（TATTER 叶）与接触影（STATIC）不收；
-  // 眼睛等小件 region 'head' 并入头盒。运行时判定见 src/hitvol.js。
+  // 眼睛等小件 region 'head' 并入头盒。运行时判定见 demo/hitvol.js。
   // mesh.userData.noHit（crawler 破布同名字段）：细长装饰件（天线/角/冠鳍等）
   // 照常烘焙渲染、照常进断肢子树，但不并入碰撞盒——否则一根天线就把头盒
   // 撑大一截，玩家「打空气爆头」。
-  const hitMap = new Map();   // leafId → { joint, part, min:[x,y,z], max:[x,y,z] }
+  // 部位标签的可选覆盖（向后兼容的纯增量，旧物种不设这两个字段行为不变）：
+  //   userData.region === 'core'（golem 发光核心）→ part 'core'（要害盒）；
+  //   userData.plate = true（golem 装甲板）→ part 'plate'（不计入四肢桶，
+  //   由调用方按盒单独计数——板中弹 N 次整块脱落，见 demo/shooter.html）。
+  const hitMap = new Map();   // leaf|part → { joint, part, min:[x,y,z], max:[x,y,z] }
   const bakedMeshes = [];     // 断肢几何原料：{ ids(链), leaf, g(bind 模型空间几何), material }
   for (const m of meshes) {
     const ids = chainOf(m.parent);
@@ -187,14 +191,21 @@ export function bakeMummy(createEnemy, MUMMY) {
     const g = pushGeo(m, leaf);
     bakedMeshes.push({ ids, leaf, g, material: m.material });
     if (m.userData.noHit) continue;
-    const part = m.userData.region === 'head' ? 'head' : PART_OF_JOINT[leaf];
+    const part = m.userData.region === 'head' ? 'head'
+      : m.userData.region === 'core' ? 'core'
+      : m.userData.plate ? 'plate'
+      : PART_OF_JOINT[leaf];
     if (!part) continue;
     g.computeBoundingBox();
     const bb = g.boundingBox;
-    let hb = hitMap.get(leaf);
+    // 合并键 = 叶关节 × 部位（同叶不同 part 不并盒：golem 核心盒挂在躯干叶上，
+    // 若与躯干盒合并，核心判定盒会被躯干尺寸吞掉。旧物种同叶恒同 part，
+    // 合并结果与逐叶键完全一致——向后兼容）
+    const key = leaf + '|' + part;
+    let hb = hitMap.get(key);
     if (!hb) {
       hb = { joint: leaf, part, min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
-      hitMap.set(leaf, hb);
+      hitMap.set(key, hb);
     }
     for (let a = 0; a < 3; a++) {
       const lo = a === 0 ? bb.min.x : a === 1 ? bb.min.y : bb.min.z;
@@ -229,7 +240,7 @@ export function bakeMummy(createEnemy, MUMMY) {
   // 眼睛 region=head 链过 NECK，会并进断头件，材质分组里保留其自发光材质）。
   // 产出两个形态：
   //   geometry/material：合并成单几何 + 顶点数最多的主材质，原点平移到子树
-  //     包围盒中心——断肢飞舞池（examples/shooter.html）直接拿它做 1 draw call 残肢；
+  //     包围盒中心——断肢飞舞池（demo/shooter.html）直接拿它做 1 draw call 残肢；
   //   pieces：按材质分组的原始件（bind 模型空间，未平移），备胎/调试用。
   const debris = {};
   for (const sj of SEVER_JOINTS) {

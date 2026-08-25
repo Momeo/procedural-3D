@@ -1,12 +1,17 @@
 /**
  * 部件级有向碰撞盒（OBB）命中判定——射击判定与单体查看器可视化的唯一真源。
  *
- * 结构（生成期由 src/bake.js 产出，随烘焙产物走）：
+ * 结构（生成期由 pipeline/bake.js 产出，随烘焙产物走）：
  *   baked.hitboxes = [{ joint, part, min:[3], max:[3] }]   // bind 模型空间 Box3，
- *     按叶关节合并（头/躯干/髋/双臂×2/双腿×2，~11 盒；爬行者同机制 ~10 盒）；
- *     part ∈ head/torso/hips/arm/leg；破布条与接触影不做碰撞体，眼睛等小件并入头盒
+ *     按叶关节×部位合并（头/躯干/髋/双臂×2/双腿×2，~11 盒；爬行者同机制 ~10 盒）；
+ *     part ∈ head/torso/hips/arm/leg/plate/core（plate/core 为 golem 谱系新增：
+ *     装甲板减伤壳 / 板掉后暴露的发光核心要害）；破布条与接触影不做碰撞体
  *   baked.hitSphere = { c:[3], r }                          // 粗筛总球（盒并集外接球
  *     + 四肢摆动余量），实例级，预计算
+ *
+ * 断肢/脱落与判定同源：raycastLocal 跳过「链上任一关节在 severMask 里」的盒
+ * （rowReader 从纹理列 0.z 读出掩码）——断臂/脱落的装甲板视觉塌缩后不再留
+ * 幽灵盒挡子弹。查看器侧 rigReader 无 mask 字段（缺省 0 = 全盒有效）。
  *
  * 运行时判定（按需，零每帧开销；开枪才走）：
  *   a. 粗筛：世界射线 vs 每实例 hitSphere（coarseSphereWorld 展开到世界系）；
@@ -29,8 +34,10 @@
 import * as THREE from 'three';
 import { MAX_JOINTS } from './bake.js';
 
-/** 部位伤害倍率表（唯一真源；面板显示同一份）。头要害 ×3 / 躯干 ×1 / 四肢 ×0.5。 */
-export const PART_MULT = { head: 3, torso: 1, hips: 1, arm: 0.5, leg: 0.5 };
+/** 部位伤害倍率表（唯一真源；面板显示同一份）。头/核心要害 ×3 / 躯干 ×1 /
+ *  四肢 ×0.5 / 装甲板 ×0.3（golem 谱系的板是减伤壳：板在时吸低伤，板掉后
+ *  核心盒暴露吃 core 档——见 species/golem.js 与 shooter.html 的板计数）。 */
+export const PART_MULT = { head: 3, torso: 1, hips: 1, arm: 0.5, leg: 0.5, plate: 0.3, core: 3 };
 
 // ---------------------------------------------------------------------------
 // quatAt 读取器
@@ -41,10 +48,11 @@ export const PART_MULT = { head: 3, torso: 1, hips: 1, arm: 0.5, leg: 0.5 };
  *   rowReader.set(b.jointData, i, MAX_JOINTS) 后传给 raycastWorld 等。
  */
 export const rowReader = {
-  data: null, row: 0, width: MAX_JOINTS, bob: 0,
+  data: null, row: 0, width: MAX_JOINTS, bob: 0, mask: 0,
   set(data, row, width) {
     this.data = data; this.row = row; this.width = width;
     this.bob = data[row * width * 4];          // 列 0 x = body bob
+    this.mask = data[row * width * 4 + 2] | 0; // 列 0 z = severMask（断肢/脱板子树）
     return this;
   },
   at(j, q) {
@@ -143,8 +151,19 @@ function slabBox(ox, oy, oz, dx, dy, dz, hb, t1) {
  */
 export function raycastLocal(baked, quatAt, ro, rd, out) {
   beginFk();
+  const mask = quatAt.mask || 0;   // 断肢/脱落掩码：子树被断的盒不再挡子弹
   let best = Infinity, hitBox = null;
   for (const hb of baked.hitboxes) {
+    if (mask) {
+      // 盒叶关节的链上任一关节在掩码里 → 该部件已脱离身体（顶点塌缩隐藏），
+      // 判定必须同步跳过——否则打断的手臂/脱落的装甲板原地留「幽灵盒」
+      const cs = baked.chainStart[hb.joint], cl = baked.chainLen[hb.joint];
+      let hidden = false;
+      for (let k = 0; k < cl; k++) {
+        if (mask & (1 << baked.chainList[cs + k])) { hidden = true; break; }
+      }
+      if (hidden) continue;
+    }
     _inv.copy(jointMatrix(baked, quatAt, hb.joint)).invert();
     // bob 是最外层 +y 平移：先折进原点（逆变换 T(0,-bob,0) 再 M⁻¹）
     _ro.copy(ro); _ro.y -= quatAt.bob; _ro.applyMatrix4(_inv);
