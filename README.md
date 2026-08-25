@@ -7,7 +7,7 @@
 Everything is generated in code: geometry, textures, materials, animation. No model files,
 no texture files, no build step — plain ES modules with a single peer dependency (`three`).
 
-- **29 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons, 6 undead and 4 golems) driven by pure-data specs
+- **35 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons, 6 undead, 4 golems and 6 dolls) driven by pure-data specs
   (palette / proportions / gait) — a new monster is a new table, not new machinery.
 - **Flyer support**: `gait.kind = 'fly'` wing-flap/hover gaits (two wing pairs on the
   extended joint slots, wingless hover with a spin-ring on the tatter channel), cruise
@@ -33,6 +33,15 @@ no texture files, no build step — plain ES modules with a single peer dependen
   species) and hitvol.js carries `plate ×0.3 / core ×3` multipliers plus
   mask-aware hit skipping (severed limbs and dropped parts no longer
   ghost-block shots — a genuine bug fix, kept).
+- **Doll series** (`src/species/dolls.js`): creepy-cute worn rag dolls, mostly
+  child-sized — girl doll with yarn braids, boy doll in overalls, a crawling
+  baby (true crawl gait), a twin carrying a mini doll on its back, a tall
+  hunched butler (~1.95 m) and a boss-tier giant torn doll (scale 2.2).
+  Family signatures: button eyes with stitched cross-holes (one drooping on a
+  loose thread), stuffing cotton bulging from seams (seeded irregular
+  clusters), contrast patches with dashed stitch lines, limb seam rings, and
+  a printed cotton-cloth albedo (calico/gingham generator — near-white base,
+  so palettes tint without the green shift).
 - **Horde instancing pipeline**: bake any species rig into one geometry per material and
   render hundreds of animated instances at a fixed draw-call budget — 300 mixed monsters
   in ~40–60 draw calls, independent of headcount.
@@ -59,6 +68,8 @@ no texture files, no build step — plain ES modules with a single peer dependen
 | 6 undead (trooper/hound/wraith/lich/knight/colossus) | mix_undead horde |
 | ![Golem lineup](docs/screenshots/golem_lineup.png) | ![Golem horde](docs/screenshots/golem_horde.png) |
 | 4 golems (rock/magma/frost/crystal) | mix_golem horde |
+| ![Doll lineup](docs/screenshots/doll_lineup.png) | ![Doll horde](docs/screenshots/doll_horde.png) |
+| 6 dolls (girl/boy/baby/twin/butler/giant) | mix_doll horde |
 | ![Gun pal gallery](docs/screenshots/gunpals_gallery.png) | ![First-person hold](docs/screenshots/gunpals_firstperson.png) |
 | Gun pal gallery | First-person hold (stagbite) |
 | ![Overheat state](docs/screenshots/gunpals_overheat.png) | ![Dismemberment & ragdoll](docs/screenshots/dismember_ragdoll.png) |
@@ -110,7 +121,7 @@ Or serve the repository root over HTTP (`python -m http.server`) and open `examp
 | Page | What it shows | Test hook |
 |------|---------------|-----------|
 | `examples/single.html` | Single monster viewer: species switcher, attack/stagger triggers, hit-volume overlay (`?vol=1`) | `window.__pmtk` |
-| `examples/lineup.html` | All 29 species side by side — silhouette readability check | `window.__pmtk` |
+| `examples/lineup.html` | All 35 species side by side — silhouette readability check | `window.__pmtk` |
 | `examples/horde.html` | Horde instancing: mixes & single species, 24–600 instances, `?lod=0` / `?cull=0` A/B toggles | `window.__horde` |
 | `examples/shooter.html` | FPS hitscan playground: OBB part hits, dismemberment, ragdolls, blood pools | `window.__shooter` |
 | `examples/gunpals.html` | Gun pal gallery + first-person hold (keys 1–5, I/A/F/O states) | `window.__pmtk` |
@@ -160,14 +171,15 @@ draw calls and texture writes, not fps. Single monster ≈ 1.2k triangles, 14 jo
 |----------|-----------|
 | Naive reference (per-actor `Group`s), 100 monsters | 1803 |
 | Instanced single species, 100 / 300 / 600 monsters | **8** (6 material groups + ground + grid) |
-| Species lineup, all 29 species walking side by side | **610** calls / 43.4k tris total |
+| Species lineup, all 29 species walking side by side (measured at 0.5.0) | **610** calls / 43.4k tris total |
 | Mixed horde, 7 zombie species × 300 | **43** |
 | Mixed horde, 4 robot species × 300 | **25** |
 | Flyer horde, 4 flyer species × 300 (`mix_fly`) | **25** |
 | Dragon horde, 4 dragon species × 300 (`mix_dragon`) | **23** |
 | Undead horde, 6 undead species × 300 (`mix_undead`) | **39** |
 | Golem horde, 4 golem species × 300 (`mix_golem`) | **23** |
-| Mixed horde, all 28 mix species × 300 | **165** |
+| Doll horde, 6 doll species × 300 (`mix_doll`) | **38** |
+| Mixed horde, all 28 mix species × 300 (measured at 0.5.0) | **165** |
 | Shooter (horde + viewmodel + blood/decal pools), 300 | **42** (peak ≤ 48 with debris + ragdolls) |
 | Distance-tiered LOD animation | 115/300 joint-texture rows written at default camera; 0/300 from 55 m |
 | 2×2 grid frustum culling (camera facing away) | 228 → **55** calls, 390k → 89k tris |

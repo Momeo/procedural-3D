@@ -46,6 +46,19 @@ the horde, and is fully hittable/dismemberable.
      available as an unused retained mechanism (bake.js `userData.plate` /
      `region:'core'` tags + hitvol.js plate/core multipliers; mask-aware hit
      skipping — severed limbs no longer ghost-block shots — is a kept bug fix)
+   - rag doll (creepy-cute, mostly child-sized) → `src/species/dolls.js`
+     (`buildDollRig` on the humanoid contract, "floppy" gait via big
+     `headLoll`/arm swing; family signatures: button eyes with stitched
+     cross-holes — dollette's left button droops on a thread —, seeded
+     irregular stuffing-cotton clusters bulging from seams, contrast patches
+     with dashed stitch lines (`stitchPath`/`patchOnBarrel` decal strips),
+     limb seam rings, and `calicoMaps()` printed cotton albedo — gingham +
+     tiny florals drawn in near-white luminance only, so palettes tint
+     without the fleshMaps green shift; cotton/stitches/thread go on the
+     tatter slot (vertexColors — custom geometry must add a white `color`
+     attribute, see `withWhiteColors`), patches on accent, buttons/stitches/
+     seam rings on deep; tottle is a true crawler on the crawler_true
+     contract)
 3. **Write the spec tables** (contracts below). Respect the iron rule
    `hipY = thighL + shinL` or the feet float.
 4. **Textures** (optional): follow the wraps.js/zombie.js canvas paradigm — draw albedo

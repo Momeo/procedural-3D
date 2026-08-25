@@ -20,10 +20,10 @@
 <body>
 <div id="panel">
   <b>Horde — baked single geometry + InstancedMesh</b><br>
-  <small>Default "all mix" of 28 species; series mixes (zombie/robot/flyer/dragon/undead/golem hordes) or 29 single-species picks — one bake + joint texture per species</small>
+  <small>Default "all mix" of 34 species; series mixes (zombie/robot/flyer/dragon/undead/golem/doll hordes) or 35 single-species picks — one bake + joint texture per species</small>
   <div style="margin:6px 0">
     Mix
-    <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button><button data-species="mix_fly">Flyers</button><button data-species="mix_dragon">Dragons</button><button data-species="mix_undead">Undead</button><button data-species="mix_golem">Golems</button>
+    <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button><button data-species="mix_fly">Flyers</button><button data-species="mix_dragon">Dragons</button><button data-species="mix_undead">Undead</button><button data-species="mix_golem">Golems</button><button data-species="mix_doll">Dolls</button>
     <br><small>Zombie</small>
     <button data-species="zombie">zombie</button><button data-species="bloater">bloater</button><button data-species="runner">runner</button><button data-species="brute">brute</button><button data-species="screecher">screecher</button><button data-species="crawler">crawler</button><button data-species="maggot">maggot</button>
     <br><small>Robot</small>
@@ -36,6 +36,8 @@
     <button data-species="skeltrooper">skeltrooper</button><button data-species="bonehound">bonehound</button><button data-species="wraith">wraith</button><button data-species="lich">lich</button><button data-species="graveknight">graveknight</button><button data-species="bonebrute">bonebrute</button>
     <br><small>Golem</small>
     <button data-species="rockgolem">rockgolem</button><button data-species="magmagolem">magmagolem</button><button data-species="frostgolem">frostgolem</button><button data-species="crystalgolem">crystalgolem</button>
+    <br><small>Doll</small>
+    <button data-species="dollette">dollette</button><button data-species="dollad">dollad</button><button data-species="tottle">tottle</button><button data-species="twinsie">twinsie</button><button data-species="butler">butler</button><button data-species="bigdoll">bigdoll</button>
   </div>
   <div style="margin:6px 0">
     Mode
@@ -67,8 +69,8 @@ addEventListener('unhandledrejection', e => { document.getElementById('err').tex
 
 // ---------------------------------------------------------------------------
 // 模式：混编（?species=mix / mix_zombie / mix_robot / mix_fly / mix_dragon /
-// mix_undead，默认 mix）/ 单物种（?species=xxx，25 物种全开）。混编配比按
-// 「炮灰铺底 / 中坚 / 稀有」分层，配方表按 id 查表。
+// mix_undead / mix_golem / mix_doll，默认 mix）/ 单物种（?species=xxx，
+// 35 物种全开）。混编配比按「炮灰铺底 / 中坚 / 稀有」分层，配方表按 id 查表。
 // ---------------------------------------------------------------------------
 const MIX_RECIPES = {
   // 全员：zombie/crawler/tickbot 铺底炮灰，runner 中坚（速度层次），
@@ -77,18 +79,18 @@ const MIX_RECIPES = {
   // ⚠ share 总和必须 ≈1.0（mixCounts 取整后超额会轮补扣减，超额太多会把
   // 小份额物种扣成负数 → Float32Array 负长崩烘焙；24 种时代踩过）
   mix: [
-    { id: 'zombie',     share: 0.17 },
-    { id: 'crawler',    share: 0.12 },
-    { id: 'runner',     share: 0.10 },
+    { id: 'zombie',     share: 0.15 },
+    { id: 'crawler',    share: 0.11 },
+    { id: 'runner',     share: 0.09 },
     { id: 'bloater',    share: 0.06 },
     { id: 'screecher',  share: 0.06 },
-    { id: 'tickbot',    share: 0.06 },
-    { id: 'spiderbot',  share: 0.05 },
+    { id: 'tickbot',    share: 0.05 },
+    { id: 'spiderbot',  share: 0.04 },
     { id: 'centaurbot', share: 0.03, min: 2 },
     { id: 'brute',      share: 0.02, min: 2 },
     { id: 'titan',      share: 0.01, min: 1 },
-    { id: 'carrion',    share: 0.04, min: 1 },
-    { id: 'moth',       share: 0.04, min: 1 },
+    { id: 'carrion',    share: 0.03, min: 1 },
+    { id: 'moth',       share: 0.03, min: 1 },
     { id: 'hornet',     share: 0.03, min: 1 },
     { id: 'hoverdrone', share: 0.02, min: 1 },
     { id: 'sprite',     share: 0.02, min: 1 },
@@ -105,6 +107,12 @@ const MIX_RECIPES = {
     { id: 'magmagolem', share: 0.01, min: 1 },
     { id: 'frostgolem', share: 0.01, min: 1 },
     { id: 'crystalgolem', share: 0.01, min: 1 },
+    { id: 'dollette',   share: 0.03 },
+    { id: 'dollad',     share: 0.03 },
+    { id: 'tottle',     share: 0.02 },
+    { id: 'twinsie',    share: 0.02 },
+    { id: 'butler',     share: 0.01, min: 1 },
+    { id: 'bigdoll',    share: 0.01, min: 1 },
   ],
   // 丧尸海：zombie/crawler/runner 铺底（runner 负责速度层次），
   // bloater/screecher 点缀，brute 稀有重物，maggot 蛆群点缀（0.06 档）
@@ -156,14 +164,25 @@ const MIX_RECIPES = {
     { id: 'crystalgolem', share: 0.22, min: 1 },
     { id: 'magmagolem',   share: 0.12, min: 1 },
   ],
+  // 玩偶海：dollette/dollad 小孩铺底，tottle（爬婴）/twinsie 中坚，
+  // butler 少，bigdoll Boss 稀（min 1）
+  mix_doll: [
+    { id: 'dollette', share: 0.26 },
+    { id: 'dollad',   share: 0.26 },
+    { id: 'tottle',   share: 0.18, min: 1 },
+    { id: 'twinsie',  share: 0.16, min: 1 },
+    { id: 'butler',   share: 0.08, min: 1 },
+    { id: 'bigdoll',  share: 0.06, min: 1 },
+  ],
 };
-const MIX_LABEL = { mix: 'All-species mix', mix_zombie: 'Zombie horde', mix_robot: 'Robot horde', mix_fly: 'Flyer horde', mix_dragon: 'Dragon horde', mix_undead: 'Undead horde', mix_golem: 'Golem horde' };
+const MIX_LABEL = { mix: 'All-species mix', mix_zombie: 'Zombie horde', mix_robot: 'Robot horde', mix_fly: 'Flyer horde', mix_dragon: 'Dragon horde', mix_undead: 'Undead horde', mix_golem: 'Golem horde', mix_doll: 'Doll horde' };
 const SINGLE_IDS = ['zombie', 'bloater', 'runner', 'brute', 'screecher', 'crawler', 'maggot',
   'tickbot', 'spiderbot', 'centaurbot', 'titan',
   'carrion', 'moth', 'hornet', 'hoverdrone',
   'sprite', 'earth', 'frost', 'draco',
   'skeltrooper', 'bonehound', 'wraith', 'lich', 'graveknight', 'bonebrute',
-  'rockgolem', 'magmagolem', 'frostgolem', 'crystalgolem'];
+  'rockgolem', 'magmagolem', 'frostgolem', 'crystalgolem',
+  'dollette', 'dollad', 'tottle', 'twinsie', 'butler', 'bigdoll'];
 
 const q0 = new URLSearchParams(location.search);
 const sel = q0.get('species') || 'mix';
@@ -322,8 +341,15 @@ function mixCounts(total, recipe) {
   // 先按 share 取整，再把舍入差轮补到各物种上，保证总数恒为 total
   const counts = recipe.map(r => Math.max(r.min || 0, Math.round(total * r.share)));
   let diff = total - counts.reduce((a, b) => a + b, 0);
-  let i = 0;
-  while (diff !== 0) { counts[i % counts.length] += Math.sign(diff); diff -= Math.sign(diff); i++; }
+  let i = 0, skip = 0;
+  // 超额扣减不得压穿地板（min；无 min 的已分配种也不扣到 0——0 只批次
+  // 会崩受击闪白的随机点名）；全员触底仍超编就放行（多刷几只无妨）
+  while (diff !== 0 && skip < counts.length) {
+    const k = i++ % counts.length;
+    if (diff < 0 && counts[k] <= Math.max(recipe[k].min || 0, 1)) { skip++; continue; }
+    skip = 0;
+    counts[k] += Math.sign(diff); diff -= Math.sign(diff);
+  }
   return counts;
 }
 
@@ -676,7 +702,8 @@ renderer.setAnimationLoop(() => {
     flashTimer = 1.2;
     for (const b of batches) {
       for (let k = 0; k < Math.max(1, b.n >> 4); k++) {
-        b.states[(random() * b.n) | 0].params.flash = 1;
+        const st = b.states[(random() * b.n) | 0];
+        if (st) st.params.flash = 1;   // 0 只批次（小 N 混编）跳过
       }
     }
   }
