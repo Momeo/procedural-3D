@@ -1,5 +1,5 @@
 /**
- * gait.js — JS 侧 1:1 复算 core 引擎 animateHumanoid 的关节角（mummy.js，一行未改的是
+ * gait.js — JS 侧 1:1 复算 Sands animateHumanoid 的关节角（mummy.js，一行未改的是
  * 源码；这里是对其公式的转写），输出每个关节的局部旋转四元数到怪海关节纹理。
  *
  * 复算范围 = 行走循环 + 攻击（windup→strike→recover）+ 受击（stagger 趔趄
@@ -7,7 +7,7 @@
  * makeGaitParams 产出的 prm 上，由 triggerAttack / triggerStagger 触发，
  * 时码推进在各 fill 函数里（dt 驱动，advanceActions）；攻击期间双臂与躯干
  * 被攻击姿态整个接管（原版语义：不叠加），双腿继续走步态（调用方负责把
- * prm.speed 归零让原地站定，examples/shooter.html 的 atkFrozen 即此）。
+ * prm.speed 归零让原地站定，demo/shooter.html 的 atkFrozen 即此）。
  * 受击的全身趔趄原版写在 rig.body（hips 的父级）上，instanced 管线没有
  * body 旋转通道，折进 HIPS 关节（hips 子树 = body 子树，等效）+ bob 通道。
  *
@@ -137,7 +137,7 @@ export function advanceActions(st, spec, dt) {
 
 /** strideRate() 的等价物：由真实速度推导步频（mummy.js 1275 行）。 */
 export function stepRate(spec, stepSpan, scale, gjStride, speed) {
-  // 壳体系/无腿 rig 不声明 stepSpan（mummy.js strideRate 1283 行同款兜底：
+  // scarab 系 rig 不声明 stepSpan（mummy.js strideRate 1283 行同款兜底：
   // 六足 tripod 的时钟是 spec 常量而非步幅推导）；原版逐实例 gait.rate 抖动
   // 在 instanced 侧由 gjStride 承担（分布 0.85+R*0.32 ≈ 原版 0.85+R*0.30）
   if (!stepSpan) return (0.8 + speed * spec.gait.rate) * gjStride;
@@ -175,7 +175,7 @@ export function makeGaitParams(spec, seedOrRng) {
     reach,
     twistBase: reach * 0.85,                           // 脊柱永久扭转（build 1025 行）
     neckBase: -reach * 1.15,                           // 头反向补偿（build 1068 行）
-    // 破布：yaw/restZ/phase/swing 同 build 原式（壳体系无破布，空表）
+    // 破布：yaw/restZ/phase/swing 同 build 原式（scarab 系无破布，空表）
     tatters: (spec.proportions.tatters || []).map((t) => ({
       yaw: (t.yaw || 0) + (R() - 0.5) * 0.5,
       restZ: (t.out || 0) * (t.x < 0 ? -1 : 1),
@@ -213,14 +213,14 @@ function writeQuatXYZ(d, o, x, y, z) {
  * @param stepSpan  烘焙参考 rig 的步幅
  * @param dt     帧间隔（已 clamp）
  *
- * 命中判定（src/hitvol.js 部件盒 FK）直接读这份纹理行的四元数——
+ * 命中判定（demo/hitvol.js 部件盒 FK）直接读这份纹理行的四元数——
  * 判定与渲染同源同数据，不需要旁路姿态通道。
  */
 export function fillJoints(d, row, width, prm, spec, stepSpan, dt) {
-  // 壳体六足系（hips===torso===body 的自有 shell rig，如 tickbot）：
+  // 圣甲虫系（core/variants.js buildScarab 自有 rig，scarab/goldscarab 共用）：
   // 六足 tripod + 壳体摇摆，与 fillCrawlJoints 对 animateCrawler 同款转写关系。
-  // 无 gait.kind 字段，以 proportions.shellW 判型（先于人形/爬行分派）
-  if (spec.proportions.shellW) return fillShellJoints(d, row, width, prm, spec, stepSpan, dt);
+  // 无 gait.kind 字段，以 proportions.shellW 判型（人形/机器人均无此字段）
+  if (spec.proportions.shellW) return fillScarabJoints(d, row, width, prm, spec, stepSpan, dt);
   // 爬行者（species/crawler_true.js）走另一套公式：四足对角爬行，
   // 与人形行走共用纹理布局与关节表，公式对应 animateCrawler
   if (spec.gait.crawl) return fillCrawlJoints(d, row, width, prm, spec, stepSpan, dt);
@@ -302,7 +302,10 @@ export function fillJoints(d, row, width, prm, spec, stepSpan, dt) {
   let torsoZ = -lagW * g.sway * 0.55;
   let torsoY = prm.twistBase - lagW * g.hipTwist * 0.75;
   let torsoX;
-  if (act.wu > 0) torsoX = g.lean + act.wu * 0.30;          // 后仰蓄力
+  // 蓄力后仰幅：spec.windupLean 可调（缺省 0.30 = 原版硬编码，向后兼容）——
+  // 重甲巨物（golem）压小防胸甲大角度后甩；单体侧 core animateHumanoid 不可改，
+  // 物种壳（golemAnimate）按同字段反向抵消（双端同值）
+  if (act.wu > 0) torsoX = g.lean + act.wu * (spec.windupLean ?? 0.30);   // 后仰蓄力
   else if (act.stk > 0) torsoX = g.lean - (1 - act.stk) * 0.30;  // 随挥压进
   else torsoX = g.lean - loadDrag * 0.10;
   // 受击全身趔趄：原版写 rig.body（rotation.x/z + position.y 下沉，1552-1555
@@ -466,18 +469,19 @@ export function fillCrawlJoints(d, row, width, prm, spec, stepSpan, dt) {
 }
 
 /**
- * 壳体六足系 rig（hips === torso === body，如 tickbot）的关节填充：
- * 公式转写自 core 引擎的壳体六足机器（物种数据已移除，机器留存）。
+ * 圣甲虫系（core/variants.js buildScarab：scarab/goldscarab 共用 rig）的关节
+ * 填充：公式逐行对应 animateScarab（goldscarab 的 animateGoldScarab 只在其上
+ * 加通风口暴击表现，姿态部分全在 animateScarab）。
  *
- * rig 结构：bake.js 把 body 注册为 HIPS 关节（壳体俯仰/翻滚进链）；六足
- * legs[0..5] 占 HIP/KNEE + LEG2 + LEG3 槽（与 spiderbot 同序：i 偶 L 奇 R，
- * i>>1 = 前/中/后对；不足六足的物种空槽无害）；无臂无破布。腿的静止外张角
+ * rig 结构：hips === torso === body，bake.js 把 body 注册为 HIPS 关节（壳体
+ * 俯仰/翻滚进链）；六足 legs[0..5] 占 HIP/KNEE + LEG2 + LEG3 槽（与 spiderbot
+ * 同序：i 偶 L 奇 R，i>>1 = 前/中/后对）；无臂无破布。腿的静止外张角
  * （build 时 hip.rotation.z = side*-0.55）按 bake 归零契约每帧在这里还原，
  * 同爬行者 elBend。body 的 rideHeight 已烘进几何（bake 保留结构 y），
  * bob 通道只承担起伏与受击下沉。攻击/受击照原式保留（仰壳蓄力/下砸、
  * 被击侧腿摊开、头后仰），不象缺腿爬行那样只推时码。
  */
-export function fillShellJoints(d, row, width, prm, spec, stepSpan, dt) {
+export function fillScarabJoints(d, row, width, prm, spec, stepSpan, dt) {
   const g = spec.gait;
   prm.phase += dt * stepRate(spec, stepSpan, prm.scale, prm.gjStride, prm.speed);
   const p = prm.phase;
@@ -493,8 +497,8 @@ export function fillShellJoints(d, row, width, prm, spec, stepSpan, dt) {
 
   const q = (id, x, y, z) => writeQuatXYZ(d, base + id * 4, x, y, z);
 
-  // 六足 tripod（左前+右中+左后同相）+ 受击侧腿从壳下摊开
-  //（w = max(0, side*lx)*hk）
+  // 六足 tripod（animateScarab 232-237 行：左前+右中+左后同相）+ 受击侧
+  // 腿从壳下摊开（284-289 行，w = max(0, side*lx)*hk）
   const LEGS = [
     [J.HIP_L, J.KNEE_L], [J.HIP_R, J.KNEE_R],
     [J.LEG2_L, J.KNEE2_L], [J.LEG2_R, J.KNEE2_R],
@@ -513,8 +517,8 @@ export function fillShellJoints(d, row, width, prm, spec, stepSpan, dt) {
   }
 
   // 壳体（HIPS）：随 tripod 摇摆 + 前摇仰壳/挥击前段下砸 + 受击侧滚
-  // （原式的 staggerPitch 不作用于壳体——低宽体几乎没有俯仰杠杆臂，
-  // 反应大头在垂直与侧滚，已分别进 bob 与 z）
+  // （animateScarab 239-247/279-281 行；原版的 staggerPitch 不作用于甲虫——
+  // 低宽体几乎没有俯仰杠杆臂，反应大头在垂直与侧滚，已分别进 bob 与 z）
   let pitch = Math.sin(p * 2) * 0.05 * drive;
   if (act.wu > 0) pitch += act.wu * 0.55;              // 仰壳蓄力（顶视也读得出）
   else if (act.stk > 0) pitch -= (1 - act.stk) * 0.4;  // 前段下砸
@@ -523,8 +527,8 @@ export function fillShellJoints(d, row, width, prm, spec, stepSpan, dt) {
     Math.sin(p) * 0.09 * drive + act.roll
       + (-prm.stgS * 0.34 + prm.hitLX * 0.16) * act.hk);
 
-  // 头（NECK）：小幅点动 + 落点后仰/侧甩（壳体 rig 唯一的细部动作；
-  // 原式 rotation.y 每帧清零后加 hit 项，等价）
+  // 头（NECK）：小幅点动 + 落点后仰/侧甩（甲虫全 rig 唯一的细部动作，
+  // animateScarab 249/292-293 行；原版 rotation.y 每帧清零后加 hit 项，等价）
   q(J.NECK,
     -Math.sin(p * 0.6) * 0.08 - prm.stgF * act.hk * (0.14 + prm.hitHead * 0.40),
     prm.hitLX * act.hk * (0.18 + prm.hitHead * 0.45), 0);
@@ -533,7 +537,7 @@ export function fillShellJoints(d, row, width, prm, spec, stepSpan, dt) {
 /**
  * 蛛卫（species/robots.js spiderbot）的六足 tripod 步态填充：
  * 公式逐行对应 animateSpiderbot。第 r 对腿（r = i>>1，0 前/1 中/2 后）按
- * 壳体六足系同款 tripod 相位 off = (r + (side<0?0:1)) % 2 · π 交替；外张由静态
+ * scarab 同款 tripod 相位 off = (r + (side<0?0:1)) % 2 · π 交替；外张由静态
  * mount 烘进几何，膝的静止反折角（g.knBend）每帧在这里还原（bake 归零契约）。
  * 多出来的四条例腿走 12-19 号关节位（bake.js J 表），双臂仍是 8-11。
  */
@@ -827,7 +831,9 @@ export function fillFlyJoints(d, row, width, prm, spec, stepSpan, dt) {
   const hov = 1 - drive;
   let torsoX = (fly.pitch || 0) + (fly.hoverPitch || 0) * hov
     + Math.sin(bobP * 0.5) * 0.03 * drive;
-  if (act.wu > 0) torsoX -= act.wu * 0.35;                // 仰身
+  // 蓄力后仰幅：fly.windupLean 可调（缺省 0.35 = 原硬编码，向后兼容；
+  // crystalgolem 压小防胸甲后甩——单体侧 animateFlyer 同字段双端同源）
+  if (act.wu > 0) torsoX -= act.wu * (fly.windupLean ?? 0.35);      // 仰身
   else if (act.stk > 0) torsoX += (1 - act.stk) * 0.45;   // 前扑下压
   torsoX += act.pitch * 1.2;
   q(J.HIPS, act.pitch * 0.5, Math.sin(p * 0.31) * wv * 0.8, act.roll * 0.5);

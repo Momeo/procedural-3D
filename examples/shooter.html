@@ -968,12 +968,13 @@ window.__shooter = {
       wuDur: b.spec.windup ?? 0.52, stDur: b.spec.strikeTime ?? 0.42,
       blowDone: st.blowDone };
   },
-  // 关节纹理行读回（列 0..11：meta + hips/torso/neck/双腿/双臂四元数）
+  // 关节纹理行读回（全 32 列：meta + hips/torso/neck/双腿/双臂/扩展位/破布
+  // 四元数——golem 板槽 ARM2/EL2 在 20-23 列，「不被手臂动画驱动」断言读它）
   jointRow(batchIdx, instIdx) {
     const b = batches[batchIdx];
     if (!b || !b.states[instIdx]) return null;
     const o = instIdx * MAX_JOINTS * 4;
-    return Array.from(b.jointData.slice(o, o + 12 * 4));
+    return Array.from(b.jointData.slice(o, o + MAX_JOINTS * 4));
   },
   teleport(batchIdx, instIdx, x, z) {
     const st = batches[batchIdx] && batches[batchIdx].states[instIdx];

@@ -161,15 +161,24 @@ function golemGeometry(P) {
 }
 const GOLEMGEO = new Map();
 
-/** 行走魔像的动画壳：MUMMY.animate 会把 rig.arms 全数当手臂写——板 pivot
- *  （arms[2]/[3]）没有 bias 字段，reach=NaN 会把板矩阵毒成 NaN（首轮实拍
- *  板整片消失即此）。写后把板 pivot 复位到 bind 恒等（与烘焙零姿态一致，
- *  instanced 路径的零四元数语义天然恒等，无需管线侧任何改动）。 */
+/** 行走魔像的动画壳：两件事——
+ *  1. 板 pivot 复位：MUMMY.animate 会把 rig.arms 全数当手臂写——板 pivot
+ *     （arms[2]/[3]）没有 bias 字段，reach=NaN 会把板矩阵毒成 NaN（首轮实拍
+ *     板整片消失即此）。写后把板 pivot 复位到 bind 恒等（与烘焙零姿态一致，
+ *     instanced 路径的零四元数语义天然恒等，无需管线侧任何改动）。
+ *  2. 蓄力后仰抵消：core animateHumanoid 的 windup 后仰 0.30 rad 不可调
+ *     （core 一行不改）——重甲巨物后仰会让胸甲大幅后甩读成「板飞了」
+ *     （用户实测报告）。按 spec.windupLean 反向抵消到目标幅值；instanced
+ *     侧 pipeline/gait.js 直接读同字段（双端同值同源）。 */
 function golemAnimate(rig, spec, s) {
   MUMMY.animate(rig, spec, s);
   for (let ai = 2; ai < rig.arms.length; ai++) {
     rig.arms[ai].shoulder.rotation.set(0, 0, 0);
     rig.arms[ai].elbow.rotation.set(0, 0, 0);
+  }
+  const wl = spec.windupLean ?? 0.30;
+  if (wl !== 0.30 && s.windup > 0) {
+    rig.torso.rotation.x -= s.windup * (0.30 - wl);   // 抵消 core 的固定 0.30 后仰
   }
 }
 
@@ -383,6 +392,7 @@ export const ROCKGOLEM = {
   },
 
   makeMaterials: (spec, rng) => makeZombieMaterialsFrom(spec, linenMaps(), rng),
+  windupLean: 0.08,    // 蓄力后仰压小（重甲巨物 0.30 会让胸甲大幅后甩）
   build: buildRockgolem,
   animate: golemAnimate,
 };
@@ -476,6 +486,7 @@ export const MAGMAGOLEM = {
   },
 
   makeMaterials: (spec, rng) => makeZombieMaterialsFrom(spec, linenMaps(), rng),
+  windupLean: 0.08,
   build: buildMagmagolem,
   animate: golemAnimate,
 };
@@ -577,6 +588,7 @@ export const FROSTGOLEM = {
   },
 
   makeMaterials: makeFrostMaterials,
+  windupLean: 0.08,
   build: buildFrostgolem,
   animate: golemAnimate,
 };
@@ -785,6 +797,7 @@ export const CRYSTALGOLEM = {
       wingPairs: 0,
       legs: true, legDangle: 0.12, legBend: 0.25,   // 垂落石柱腿微摆
       headUp: -0.06, headScan: 0.3,
+      windupLean: 0.10,      // 悬浮巨物蓄力仰身压小（胸甲随仰身后甩的同款坑）
       hoverPitch: -0.03,
       hoverHeadUp: 0.10,          // 悬停低头俯视（精英的压迫感）
     },

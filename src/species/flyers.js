@@ -52,9 +52,12 @@ function mkActorTools(mats, actor) {
   };
   return { meshes, add, count: () => triangles };
 }
+// dragons.js 复用（导出不影响本文件内部引用）
+export { mkActorTools, flyBlob };
 
 /** 接触影：见 flyBlob。镜像工具：+x 单侧几何 → -x 镜像（顶点/法线取反 +
- * 逐三角形交换 v1/v2 翻回绕向，负 scale 会让面片背对相机，不能用）。 */
+ * 逐三角形交换 v1/v2 翻回绕向，负 scale 会让面片背对相机，不能用）。
+ * dragons.js 复用本函数。 */
 export function mirrorX(src) {
   const g = src.clone();
   const pa = g.attributes.position.array, na = g.attributes.normal.array, ua = g.attributes.uv.array;
@@ -70,9 +73,6 @@ export function mirrorX(src) {
   }
   return g;
 }
-
-// dragons.js 复用（导出不影响本文件内部引用）
-export { mkActorTools, flyBlob };
 
 /** 飞行种接触影：贴地 y≈0 不动，随 flyY 放大并变淡（克隆共享 MAT，不动 core）。 */
 function flyBlob(spec, baseR) {
@@ -128,12 +128,14 @@ export function animateFlyer(rig, spec, s) {
 
   // 身体：前进俯仰 + weave 横摆；攻击 = windup 仰身 → strike 前扑下压
   // 悬停加权 hov = 1-drive：hoverPitch/hoverHeadUp 缺省 0（旧物种行为不变，
-  // 与 src/gait.js fillFlyJoints 逐行对应——双端同源铁律）
+  // 与 pipeline/gait.js fillFlyJoints 逐行对应——双端同源铁律）；
+  // windup 仰身幅 fly.windupLean 可调（缺省 0.35 原硬编码，向后兼容）：
+  // 重甲悬浮种（crystalgolem）压小，防胸甲随仰身大角度后甩
   const wv = fly.weave || 0;
   const hov = 1 - drive;
   let torsoX = (fly.pitch || 0) + (fly.hoverPitch || 0) * hov
     + Math.sin(bobP * 0.5) * 0.03 * drive;
-  if (wu > 0) torsoX -= wu * 0.35;
+  if (wu > 0) torsoX -= wu * (fly.windupLean ?? 0.35);
   else if (stk > 0) torsoX += (1 - stk) * 0.45;
   torsoX += sPitch * 1.2;
   rig.hips.rotation.set(sPitch * 0.5, Math.sin(p * 0.31) * wv * 0.8, sRoll * 0.5);

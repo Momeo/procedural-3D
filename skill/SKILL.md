@@ -131,7 +131,14 @@ slowing to a hover (draco uses -0.20 / +0.32 for the looming Smaug pose).
   vanishes). Reset wrapper pivots to bind identity after the stock animate call
   (`golemAnimate` does exactly this). The instanced path is immune: unwritten
   texture rows read as the zero quaternion, which is the identity through the
-  hQrot/hT accumulation math.
+  hQrot/hT accumulation math. And the reset must cover EVERY animation path —
+  the wrapper lives in `spec.animate`, the single exit all of walk/attack/hit
+  go through. (A user-reported "plate flies backward on attack" turned out NOT
+  to be detachment — the plate pivot measured rigid to the torso — but the
+  stock 0.30 rad windup rear amplified by a big plate; fixed with the
+  backward-compatible `spec.windupLean` field, read by gait.js on both the
+  humanoid and fly branches, counteracted by golemAnimate on the direct path,
+  and by `fly.windupLean` in animateFlyer. Golems run 0.08–0.10.)
 - **A plate must actually cover the core**: verified by screenshots, not by
   intent — a plate drooping too low leaves the core peeking over its top edge
   and the whole break-to-expose mechanic is moot (caught on camera in round one).
