@@ -1,7 +1,7 @@
 /**
  * Shared top nav bar for the five example pages — one line to wire up:
  *   import { initNav } from './nav.js';
- *   initNav('single');   // 'single' | 'lineup' | 'horde' | 'shooter' | 'gunpals'
+ *   initNav('single');   // 'single' | 'lineup' | 'horde' | 'shooter' | 'gunpals' | 'bowpals'
  * A translucent strip fixed to the top of the viewport; the pages' top-left
  * #panel / top-right #hint are shifted down to make room.
  */
@@ -12,6 +12,7 @@ export function initNav(current) {
     ['horde', 'Horde', 'horde.html'],
     ['shooter', 'Shooter', 'shooter.html'],
     ['gunpals', 'Gun pals', 'gunpals.html'],
+    ['bowpals', 'Bow pals', 'bowpals.html'],
   ];
   const style = document.createElement('style');
   style.textContent = [

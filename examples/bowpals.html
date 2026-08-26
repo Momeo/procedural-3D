@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procedural-3D — bow pals (living bows)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;height:100%;background:#101210;color:#ddd8c8;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  #panel{position:fixed;top:10px;left:10px;z-index:2;background:#141812e6;padding:10px 12px;border-radius:6px;max-width:420px}
+  #panel small{color:#9aa088}
+  .grow{padding:4px 6px;margin:2px 0;border-radius:4px;cursor:pointer;color:#c8c4a8}
+  .grow:hover{background:#2a2a20}
+  .grow.on{background:#4a5c28;color:#e8f0d0}
+  .grow small{color:#8a9070;margin-left:4px}
+  #statebar{display:flex;gap:4px;margin:6px 0 2px}
+  #statebar button{flex:1;background:#22261c;color:#b8b498;border:1px solid #3a3e30;border-radius:4px;padding:3px 0;cursor:pointer;font:12px system-ui}
+  #statebar button:hover{background:#2e3325}
+  #statebar button.on{background:#5c4828;color:#f0e0b8}
+  #hint{position:fixed;right:10px;top:8px;color:#9aa088;font-size:12px;text-align:right;z-index:2}
+  #err{position:fixed;left:10px;bottom:10px;color:#ff7a6a;white-space:pre;z-index:3;font:12px monospace}
+</style>
+</head>
+<body>
+<div id="panel">
+  <b>Bow pals — 5 living bows (click row = select)</b><br>
+  <div class="grow" data-i="0"><b>1 Mecha compound</b><br><small>segmented box limbs + glowing seams · camera-lens eye (aperture blink)</small></div>
+  <div class="grow" data-i="1"><b>2 Aurelia seraph</b><br><small>white-gold recurve blade + winged mask · golden slit pupils</small></div>
+  <div class="grow" data-i="2"><b>3 Dracobow</b><br><small>S-curve dragon-horn blade + dragon skull · amber slit pupils, curved horns</small></div>
+  <div class="grow" data-i="3"><b>4 Sakura fox</b><br><small>flame-petal blade + fox mask · half-lidded seductive eyes (widen on release)</small></div>
+  <div class="grow" data-i="4"><b>5 Frostbite wisp</b><br><small>angular ice blade + floating shard cluster · single ice-spirit eye</small></div>
+  <div id="statebar">
+    <button data-s="idle">Idle (I)</button>
+    <button data-s="aim">Aim (A)</button>
+    <button data-s="release">Release (R)</button>
+    <button data-s="blink">Blink (B)</button>
+  </div>
+  <small>big eyes + eyelids · idle looks back at you · aim stares downrange · release = recoil + limb flutter + eyes widen + motif flash</small>
+</div>
+<div id="hint">Drag to orbit / wheel to zoom / click a bow or a panel row<br>1-5 select · I/A state · R release reaction · B force blink</div>
+<div id="err"></div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module">import { initNav } from './nav.js'; initNav('bowpals');</script>
+<script type="module" src="./bowpals.js"></script>
+</body>
+</html>

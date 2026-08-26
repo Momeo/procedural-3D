@@ -123,7 +123,7 @@ scene.add(gun.group);
 
 Hosted online at **https://momeo.github.io/procedural-3D/examples/** (GitHub Pages, straight from this repo).
 Or serve the repository root over HTTP (`python -m http.server`) and open `examples/`
-— the landing page links all five demos.
+— the landing page links all six demos.
 
 | Page | What it shows | Test hook |
 |------|---------------|-----------|
@@ -132,6 +132,7 @@ Or serve the repository root over HTTP (`python -m http.server`) and open `examp
 | `examples/horde.html` | Horde instancing: mixes & single species, 24–600 instances, `?lod=0` / `?cull=0` A/B toggles | `window.__horde` |
 | `examples/shooter.html` | FPS hitscan playground: OBB part hits, dismemberment, ragdolls, blood pools | `window.__shooter` |
 | `examples/gunpals.html` | Gun pal gallery + first-person hold (keys 1–5, I/A/F/O states) | `window.__pmtk` |
+| `examples/bowpals.html` | Bow pal gallery: 5 living bows (idle look-back, aim, release reaction, blink) | `window.__bowpals` |
 
 ## Architecture
 
@@ -153,9 +154,12 @@ Four layers, each depending only on the ones below it:
 - **`src/species/`** — data, not code: each species is a spec table
   (`palette` / `proportions` / `gait`) plus optional procedural texture functions and a
   factory. `src/species/index.js` is the registry — one line per species.
-- **`src/gunpals/`** — the living weapons: five builders on a shared behavior actor
+- **`src/gunpals/`** — the living weapons: five gun builders on a shared behavior actor
   (four states, eye/eyelid system, muzzle flash/tracer/laser/smoke), sharing `prims.js`
-  with the monster pipeline.
+  with the monster pipeline. Second family: **bow pals** (`bowpals.js` / `bows.js` /
+  `scifi.js`) — five living bows (mecha / aurelia / dracobow / sakura / frostbite) on
+  `BowActor` (GunActor subclass: idle look-back, aim stare, `release()` reaction with
+  limb flutter + eyes widen + motif flash), mirrored from GunPalToolkit 0.2.0.
 
 ## Writing a new species
 

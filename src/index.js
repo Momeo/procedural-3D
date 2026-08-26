@@ -17,7 +17,8 @@
  *   species/  Spec tables + factories for the 35 built-in species
  *             (registry: species/index.js, export SPECIES).
  *   gunpals/  Living creature-weapons: 5 built-in guns with a four-state
- *             behavior actor (idle/aim/fire/overheat).
+ *             behavior actor (idle/aim/fire/overheat), plus the second
+ *             family: 5 living bows (bowpals.js, BowActor).
  *
  * The host page must provide an importmap entry for the bare specifier
  * 'three' (three >= 0.170). See examples/ for complete integrations.
@@ -61,3 +62,7 @@ export {
 export {
   GUNPAL_VERSION, GUNS, GUN_IDS, buildGun, GunActor,
 } from './gunpals/gunpals.js';
+export {
+  SPECS as BOWS, BOW_IDS, buildBow, BowActor,
+  makeBowBody, makeArrowMesh, specForId, setBowOverride,
+} from './gunpals/bowpals.js';
