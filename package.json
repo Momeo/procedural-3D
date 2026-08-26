@@ -1,6 +1,6 @@
 {
   "name": "procedural-3d",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Zero-asset, spec-driven procedural monsters, horde instancing and living creature-weapons for three.js",
   "type": "module",
   "main": "src/index.js",

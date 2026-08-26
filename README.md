@@ -7,7 +7,7 @@
 Everything is generated in code: geometry, textures, materials, animation. No model files,
 no texture files, no build step — plain ES modules with a single peer dependency (`three`).
 
-- **35 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons, 6 undead, 4 golems and 6 dolls) driven by pure-data specs
+- **36 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons, 6 undead, 4 golems and 7 dolls) driven by pure-data specs
   (palette / proportions / gait) — a new monster is a new table, not new machinery.
 - **Flyer support**: `gait.kind = 'fly'` wing-flap/hover gaits (two wing pairs on the
   extended joint slots, wingless hover with a spin-ring on the tatter channel), cruise
@@ -34,12 +34,16 @@ no texture files, no build step — plain ES modules with a single peer dependen
   mask-aware hit skipping (severed limbs and dropped parts no longer
   ghost-block shots — a genuine bug fix, kept).
 - **Doll series** (`src/species/dolls.js`): creepy-cute worn rag dolls, mostly
-  child-sized — girl doll with yarn braids, boy doll in overalls, a crawling
-  baby (true crawl gait), a twin carrying a mini doll on its back, a tall
-  hunched butler (~1.95 m) and a boss-tier giant torn doll (scale 2.2).
-  Family signatures: button eyes with stitched cross-holes (one drooping on a
-  loose thread), stuffing cotton bulging from seams (seeded irregular
-  clusters), contrast patches with dashed stitch lines, limb seam rings, and
+  child-sized — girl doll with yarn braids, boy doll in overalls, a small
+  kitty doll and puppy doll (quadruped centaur gait: pointed ears + yarn
+  whiskers + slim tail vs floppy ears + muzzle + stub tail), a twin carrying
+  a mini doll on its back, a tall hunched butler (~1.95 m) and a boss-tier
+  giant torn doll (scale 2.2).
+  Family signatures: true button eyes (light tactile button body with a
+  raised rim and a recessed four-hole center, contrast thread in crossed or
+  parallel stitches — button colour varies per species), stuffing cotton
+  bulging from seams (seeded irregular clusters), contrast patches with
+  dashed stitch lines, limb seam rings, and
   a printed cotton-cloth albedo (calico/gingham generator — near-white base,
   so palettes tint without the green shift).
 - **Horde instancing pipeline**: bake any species rig into one geometry per material and
@@ -69,7 +73,7 @@ no texture files, no build step — plain ES modules with a single peer dependen
 | ![Golem lineup](docs/screenshots/golem_lineup.png) | ![Golem horde](docs/screenshots/golem_horde.png) |
 | 4 golems (rock/magma/frost/crystal) | mix_golem horde |
 | ![Doll lineup](docs/screenshots/doll_lineup.png) | ![Doll horde](docs/screenshots/doll_horde.png) |
-| 6 dolls (girl/boy/baby/twin/butler/giant) | mix_doll horde |
+| 7 dolls (girl/boy/kitty/puppy/twin/butler/giant) | mix_doll horde |
 | ![Gun pal gallery](docs/screenshots/gunpals_gallery.png) | ![First-person hold](docs/screenshots/gunpals_firstperson.png) |
 | Gun pal gallery | First-person hold (stagbite) |
 | ![Overheat state](docs/screenshots/gunpals_overheat.png) | ![Dismemberment & ragdoll](docs/screenshots/dismember_ragdoll.png) |
@@ -178,7 +182,7 @@ draw calls and texture writes, not fps. Single monster ≈ 1.2k triangles, 14 jo
 | Dragon horde, 4 dragon species × 300 (`mix_dragon`) | **23** |
 | Undead horde, 6 undead species × 300 (`mix_undead`) | **39** |
 | Golem horde, 4 golem species × 300 (`mix_golem`) | **23** |
-| Doll horde, 6 doll species × 300 (`mix_doll`) | **38** |
+| Doll horde, 7 doll species × 300 (`mix_doll`) | **51** |
 | Mixed horde, all 28 mix species × 300 (measured at 0.5.0) | **165** |
 | Shooter (horde + viewmodel + blood/decal pools), 300 | **42** (peak ≤ 48 with debris + ragdolls) |
 | Distance-tiered LOD animation | 115/300 joint-texture rows written at default camera; 0/300 from 55 m |

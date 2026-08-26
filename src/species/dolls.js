@@ -1,13 +1,17 @@
 /**
- * 破旧布娃娃谱系（dolls.js）：女童偶 dollette / 男童偶 dollad / 婴儿偶 tottle /
- * 双子抱偶 twinsie / 管家人偶 butler / 巨型破损布偶 bigdoll。
- * 气质：被丢弃的旧布偶，creepy-cute；小孩子体型占多数（6 种里 4 种小孩）。
+ * 破旧布娃娃谱系（dolls.js）：女童偶 dollette / 男童偶 dollad / 双子抱偶 twinsie /
+ * 小猫偶 kitdoll / 小狗偶 pupdoll / 管家人偶 butler / 巨型破损布偶 bigdoll。
+ * 气质：被丢弃的旧布偶，creepy-cute；小孩子体型占多数（7 种里 3 种小孩 + 2 种小宠物）。
  * （命名注意：物理布娃娃是 demo/ragdoll.js 的 ragdoll——本谱系是布艺玩偶，
  *  文件叫 dolls.js 防撞名。）
  *
  * 谱系五要素（用户明确要求，盲评逐个自查）：
- *   1. **纽扣眼**：黑圆扣（deep 槽扁 cyl）+ 缝线十字孔（tatter 槽线程件）；
- *      dollette 做「一只纽扣眼松脱垂着线」的读法（扣垂在颊侧、线连回眼窝）。
+ *   1. **纽扣眼**：真纽扣读法——浅色有质感扣体（eye 槽，palette.eye=扣色，
+ *      lathe 旋出略凸扣缘边圈+中央微凹的四孔区）+ 四孔深点（deep 槽）
+ *      + 对比色线迹（四孔交叉 X 或平行两道，线色与扣体拉开明度差：
+ *      浅扣配 deep 深色线，深扣配 tatter 米白线）。特写一眼认出是纽扣；
+ *      各物种扣色不同（木棕/牛角米白/深牛角）。eye 槽材质由
+ *      makeDollMaterials 重做（标准套的 eye 是发光目底色近黑，不能当扣体）。
  *   2. **棉花凸出**：填充棉绒团从破口/接缝处不规则鼓出——cottonCluster
  *      （固定种子 mulberry32 选锚点+簇内抖动，不规则分布是重点），tatter 槽
  *      米白（palette.tatter；自定义几何补全白 color 属性——tatter 材质
@@ -22,18 +26,21 @@
  *      instancing 兼容，六材质槽/draw call 不破。
  *
  * 步态：人形步态参数调「软塌塌」（大 headLoll/大摆臂/低重心晃），core 不动；
- * tottle 走真爬行（crawler_true.js 契约：gait.crawl=true + animateCrawler）。
+ * kitdoll/pupdoll 走四足对角走姿（gait.kind='centaur' 契约，bonehound 先例：
+ * arms 空表臂通道静默，臂字段给齐假值防 NaN；断腿降速不切爬行）。
  *
  * 借与自写的分界（范式照 undead.js/golem.js 顶部契约）：
  *   - 借：parts()/tornStrip（core/anatomy.js）、contactShadow（core/contact.js）、
  *     WRAP_TILES（core/wraps.js）、prims（pipeline/prims.js）、
  *     mkActorTools/flyBlob（flyers.js）、MUMMY.animate（core/mummy.js）、
- *     animateCrawler（crawler_true.js）、quadStrips/mkRadiusFn（dragons.js）、
- *     mulberry32（pipeline/rng.js）、zombie.js 贴图 helper 全家桶
- *     （hash2/fbm/smooth/makeCanvas/normalFromHeight/packRough/linearMean/
- *     toTexture/clothMaps）、makeZombieMaterialsFrom（zombies_ex.js）。
- *   - 自写：calicoMaps 棉布印花生成器 + 布偶 rig（buildDollRig 人形契约）+
- *     五要素助手（buttonEyes/cottonCluster/stitchPath/patchOnBarrel/seamRing）。
+ *     animateCentaurbot（robots.js，arms 空表安全复用）、
+ *     quadStrips/mkRadiusFn（dragons.js）、mulberry32（pipeline/rng.js）、
+ *     zombie.js 贴图 helper 全家桶（hash2/fbm/smooth/makeCanvas/
+ *     normalFromHeight/packRough/linearMean/toTexture/clothMaps）、
+ *     makeZombieMaterialsFrom（zombies_ex.js）。
+ *   - 自写：calicoMaps 棉布印花生成器 + 布偶 rig（buildDollRig 人形契约 /
+ *     buildQuaddollRig 四足契约）+ 五要素助手
+ *     （buttonEyes/cottonCluster/stitchPath/patchOnBarrel/seamRing）。
  */
 
 import * as THREE from 'three';
@@ -44,7 +51,7 @@ import { MUMMY } from '../core/mummy.js';
 import { prims } from '../prims.js';
 import { mulberry32 } from '../rng.js';
 import { mkActorTools, flyBlob } from './flyers.js';
-import { animateCrawler } from './crawler_true.js';
+import { animateCentaurbot } from './robots.js';
 import { quadStrips, mkRadiusFn } from './dragons.js';
 import {
   hash2, fbm, smooth, makeCanvas,
@@ -128,9 +135,18 @@ export function calicoMaps() {
 }
 
 /** 布偶材质：wrap 槽换 calicoMaps 棉布印花，其余槽走标准套（wrapDark 深色
- *  布料是 clothMaps 破衣纹——补丁/裙裤的织感不同正好分层）。 */
+ *  布料是 clothMaps 破衣纹——补丁/裙裤的织感不同正好分层）。
+ *  eye 槽重做「纽扣材质」：标准套的 eye 是发光目（底色 0x20241c 近黑 +
+ *  低强度 emissive），布偶的眼睛是塑料/牛角/木质扣——浅色有质感半光泽，
+ *  palette.eye 即扣色（各物种不同），eyeGlow 字段在本谱系弃用。 */
 function makeDollMaterials(spec, rng) {
-  return makeZombieMaterialsFrom(spec, calicoMaps(), rng);
+  const mats = makeZombieMaterialsFrom(spec, calicoMaps(), rng);
+  mats.eye = new THREE.MeshStandardMaterial({
+    color: spec.palette.eye,
+    roughness: 0.35,         // 半光泽：扣面反光小高光是「塑料/牛角」的读法
+    metalness: 0.0,
+  });
+  return mats;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,33 +162,50 @@ function withWhiteColors(g) {
   return g;
 }
 
-/** 纽扣眼一对（deep 槽扁扣 + tatter 槽缝线十字孔）。
- *  opts.dangle=true：左扣松脱——扣垂在颊下、线连回眼窝（dollette 标志读法）。 */
+/** 纽扣眼一对：真纽扣读法（特写一眼认出是纽扣）。
+ *  - 扣体（eye 槽，palette.eye=扣色）：lathe 旋出——背面平贴脸、外缘一圈
+ *    略凸的扣缘边圈、中央微凹的四孔区（经典四孔扣剖面）。
+ *  - 四孔（deep 槽深点）：2×2 孔位小圆点（扣面上的针孔凹陷读法）。
+ *  - 线迹（对比色线程薄片）：opts.style 'cross' 四孔交叉 X（两道斜线正交
+ *    穿过四孔）/ 'parallel' 平行两道；线色与扣体拉开明度差——浅扣（默认）
+ *    配 deep 深色线，深扣 opts.threadLight=true 配 tatter 米白线。
+ *  返回 { buttons, holes, threads, threadLight }；holes/threads 是贴面装饰 noHit。 */
 function buttonEyes(T, P, opts = {}) {
+  const eye = prims(T);
   const deep = prims(T);
   const quads = [];
   const ey = P.headH * 0.52, ez = P.headD * 0.50, ex = P.headW * 0.24;
-  const r = P.headW * 0.115;
+  const r = P.headW * 0.125;
   // 线程薄片（中心 c、切向 t、宽 w——脸上针脚是近平面件，法线朝 +z 面外）
   const dash = (c, t, len, w) => quads.push({ c, t, n: [0, 0, 1], len, w });
+  const hr = r * 0.32;          // 四孔 2×2 半间距
   for (const s of [-1, 1]) {
-    const dangling = opts.dangle && s < 0;
-    const cy = dangling ? ey - P.headH * 0.30 : ey;
-    const cz = dangling ? ez + 0.01 : ez;
-    // 扣（扁圆柱面超前；垂扣微倾读作「挂着」）
-    deep.cyl(r, r, 0.014, { x: s * ex, y: cy, z: cz, rx: Math.PI / 2 + (dangling ? 0.4 : 0), radial: 8 });
-    // 缝线十字孔（两短线程斜交）
-    for (const rot of [0.6, -0.6]) {
-      const dx = Math.sin(rot) * r * 0.55, dy = Math.cos(rot) * r * 0.55;
-      dash([s * ex, cy, cz + 0.008], [dx, dy, 0], r * 1.1, 0.004);
+    // 扣体（剖面自下而上：背 → 侧缘 → 凸缘圈 → 内沿 → 中央微凹面）
+    eye.lathe([
+      [0, -0.004], [r, -0.004], [r, 0.002], [r * 0.97, 0.010],
+      [r * 0.80, 0.014], [r * 0.58, 0.004], [0, 0.004],
+    ], { x: s * ex, y: ey, z: ez, rx: Math.PI / 2, segs: 10 });
+    // 四孔深点（略凸出扣面，特写距离读得出针孔）
+    for (const hx of [-1, 1]) for (const hy of [-1, 1]) {
+      deep.cyl(0.0038, 0.0038, 0.012,
+        { x: s * ex + hx * hr, y: ey + hy * hr, z: ez + 0.004, rx: Math.PI / 2, radial: 4 });
     }
-    if (dangling) {
-      // 垂线：从眼窝到扣背的两根细丝
-      dash([s * ex - 0.004, (ey + cy) / 2, ez + 0.006], [0, -1, 0.06], ey - cy, 0.0035);
-      dash([s * ex + 0.004, (ey + cy) / 2 - 0.01, ez + 0.006], [0, -1, 0.04], (ey - cy) * 0.92, 0.0035);
+    // 线迹（浮在扣面上方）
+    if (opts.style === 'parallel') {
+      // 平行两道（各穿过一排两孔）
+      for (const hy of [-1, 1]) {
+        dash([s * ex, ey + hy * hr, ez + 0.013], [1, 0, 0], r * 0.95, 0.0045);
+      }
+    } else {
+      // 四孔交叉 X（两道对角线，各穿过对角两孔）
+      for (const rot of [Math.PI / 4, -Math.PI / 4]) {
+        const dx = Math.sin(rot), dy = Math.cos(rot);
+        dash([s * ex, ey, ez + 0.013], [dx, dy, 0], hr * 2 * Math.SQRT2 * 1.15, 0.0045);
+      }
     }
   }
-  return { buttons: deep.build(), threads: withWhiteColors(quadStrips(quads)) };
+  return { buttons: eye.build(), holes: deep.build(),
+    threads: withWhiteColors(quadStrips(quads)), threadLight: !!opts.threadLight };
 }
 
 /** 虚线针脚游走器：沿折线点列铺「缝一针空一针」的虚线薄片（deep 槽）。
@@ -372,8 +405,9 @@ function buildDollRig(spec, mats, actor, G) {
   neck.rotation.y = -asym.reach * 1.15;
   torso.add(neck);
   add(neck, G.skull, mats.wrap, 'head');
-  add(neck, G.buttons, mats.deep, 'head');
-  if (G.threads) add(neck, G.threads, mats.tatter, 'head', true);    // 缝线十字孔/垂线 noHit
+  add(neck, G.buttons, mats.eye, 'head');                          // 纽扣扣体（扣色= palette.eye）
+  if (G.holes) add(neck, G.holes, mats.deep, 'head', true);        // 四孔深点 noHit
+  if (G.threads) add(neck, G.threads, G.threadLight ? mats.tatter : mats.deep, 'head', true);  // 线迹 noHit（深扣配米白线）
   if (G.mouth) add(neck, G.mouth, mats.deep, 'head', true);          // 缝线嘴 noHit
   if (G.hair) add(neck, G.hair, mats.accent, 'head', true);          // 毛线发 noHit
 
@@ -484,7 +518,7 @@ function makeBarrelSurf(rFn) {
 }
 
 // ---------------------------------------------------------------------------
-// 物种一：女童偶 dollette —— 连衣裙 + 毛线双辫 + 垂线纽扣眼（标志读法）
+// 物种一：女童偶 dollette —— 连衣裙 + 毛线双辫 + 木棕纽扣眼（四孔交叉线）
 // ---------------------------------------------------------------------------
 
 const DOLLETTEGEO = new Map();
@@ -516,10 +550,12 @@ function dolletteGeometry(P) {
     out.hair = p.build();
   }
   {
-    // 纽扣眼：左扣松脱垂线（本种标志）
-    const be = buttonEyes(T, P, { dangle: true });
+    // 纽扣眼：双正常木棕扣（四孔交叉线）
+    const be = buttonEyes(T, P, { style: 'cross' });
     out.buttons = be.buttons;
+    out.holes = be.holes;
     out.threads = be.threads;
+    out.threadLight = be.threadLight;
     out.mouth = stitchMouth(P, 0.55, 0.10);
   }
   {
@@ -554,8 +590,8 @@ export const DOLLETTE = {
   palette: {
     wrap: 0xd8c8b8,      // 米杏棉布（calico 印花）
     wrapDark: 0x9a4a4a,  // 暗红连衣裙
-    deep: 0x14100c,      // 黑纽扣/缝线
-    eye: 0x8a7a6a,       // 死扣不发光（eyeGlow 极低——布偶的眼睛是塑料扣）
+    deep: 0x14100c,      // 深色缝线/针孔
+    eye: 0x8a5a34,       // 木棕扣（纽扣眼扣体色）
     eyeGlow: 0.08,
     accent: 0xc86a6a,    // 暗粉（毛线辫/补丁）
     tatter: 0xe8e0d0,    // 米白（棉花/线头）
@@ -567,7 +603,7 @@ export const DOLLETTE = {
     torsoY: 0.08, chestW: 0.42, chestH: 0.44,
     torsoProfile: KID_PROFILE,
     shoulderX: 0.19, shoulderY: 0.36, armW: 0.085, upperL: 0.30, foreL: 0.32,
-    headY: 0.56, headW: 0.30, headH: 0.32, headD: 0.29,  // 小孩大头
+    headY: 0.50, headW: 0.30, headH: 0.32, headD: 0.29,  // 小孩大头；头坐到桶顶（0.50=KID_PROFILE 顶），头缝在身上不留颈缝
     tatterRest: 0.3,
     tatters: [
       // 裙摆松脱线头两条
@@ -627,9 +663,11 @@ function dolladGeometry(P) {
     out.hair = p.build();
   }
   {
-    const be = buttonEyes(T, P, {});
+    const be = buttonEyes(T, P, { style: 'parallel' });   // 平行两道线（男童扣）
     out.buttons = be.buttons;
+    out.holes = be.holes;
     out.threads = be.threads;
+    out.threadLight = be.threadLight;
     out.mouth = stitchMouth(P, 0.6, 0.14);
   }
   {
@@ -695,7 +733,7 @@ export const DOLLAD = {
     wrap: 0xc8c0a8,      // 米灰棉布
     wrapDark: 0x4a5a7a,  // 蓝灰背带裤
     deep: 0x14100c,
-    eye: 0x8a7a6a,
+    eye: 0xd8c8a8,       // 牛角米白扣
     eyeGlow: 0.08,
     accent: 0x8a7a4a,    // 棕黄（毛线头/补丁）
     tatter: 0xe8e0d0,
@@ -707,7 +745,7 @@ export const DOLLAD = {
     torsoY: 0.08, chestW: 0.40, chestH: 0.42,
     torsoProfile: KID_PROFILE,
     shoulderX: 0.18, shoulderY: 0.34, armW: 0.08, upperL: 0.28, foreL: 0.30,
-    headY: 0.54, headW: 0.29, headH: 0.30, headD: 0.28,
+    headY: 0.50, headW: 0.29, headH: 0.30, headD: 0.28,  // 头坐到桶顶不留颈缝
     tatterRest: 0.3,
     tatters: [
       // 背带裤脚拖线
@@ -736,73 +774,14 @@ export const DOLLAD = {
 };
 
 // ---------------------------------------------------------------------------
-// 物种三：婴儿偶 tottle —— 最小只爬行种（真爬行契约 crawler_true.js 范式；
-// 大头光头缝线十字 + 奶嘴 + 连体衣；髋缝棉花爆出）
+// 四足小偶 rig（centaur 契约：legs[0..1]=前对、legs[2..3]=后对，arms 空表
+// 臂通道静默；kitdoll/pupdoll 共用）——横放布桶躯干 + 四布筒腿 + 大头纽扣眼。
+// bonehound 先例：gait.kind='centaur' 的种死亡不进布娃娃（回退倾倒+沉入），
+// 断腿只降速不切爬行。
 // ---------------------------------------------------------------------------
 
-const TOTTLEGEO = new Map();
-
-function tottleGeometry(P) {
-  let out = TOTTLEGEO.get(P);
-  if (out) return out;
-  const T = WRAP_TILES;
-  out = {};
-  {
-    // 躯干：横放圆筒连体衣（爬姿）
-    const p = prims(T);
-    p.lathe([[0.001, -0.20], [0.13, -0.18], [0.16, -0.06], [0.16, 0.08], [0.12, 0.16], [0.001, 0.18]],
-      { rx: Math.PI / 2, segs: 8 });
-    out.torso = p.build();
-    const pp = parts(T);
-    pp.box(P.torsoW * 0.9, P.torsoH * 0.8, P.torsoD * 0.4, { y: -0.02, z: -P.torsoD * 0.42, top: 1.0, bottom: 0.9 });
-    out.pelvis = pp.build();
-  }
-  {
-    // 大圆头（婴儿头占半身）+ 头顶缝线十字（deep 虚线）+ 奶嘴（accent）
-    const p = prims(T);
-    p.ellipsoid(P.headW * 0.52, P.headH * 0.5, P.headD * 0.5, { y: 0.02, rings: 5, segs: 8 });
-    out.skull = p.build();
-    const be = buttonEyes(T, P, {});
-    out.buttons = be.buttons;
-    out.threads = be.threads;
-    const pc = prims(T);
-    pc.cyl(0.024, 0.030, 0.03, { y: -P.headH * 0.16, z: P.headD * 0.5, rx: Math.PI / 2, radial: 6 });   // 奶嘴
-    out.pacifier = pc.build();
-    // 头顶缝线十字
-    out.headSeam = stitchPath([
-      [-P.headW * 0.2, P.headH * 0.52, 0.02], [0, P.headH * 0.56, 0.05], [P.headW * 0.2, P.headH * 0.52, 0.02],
-    ], 0.012, 0.009, 0.004);
-  }
-  {
-    // 爬姿四肢（婴儿藕节臂腿：两段圆节）
-    const p = prims(T);
-    p.cyl(P.armW * 0.55, P.armW * 0.62, P.upperL, { y: -P.upperL / 2, radial: 6 });
-    out.upper = p.build();
-    const pf = prims(T);
-    pf.cyl(P.armW * 0.48, P.armW * 0.55, P.foreL, { y: -P.foreL / 2, radial: 6 });
-    pf.ellipsoid(P.armW * 0.6, 0.035, P.armW * 0.7, { y: -P.foreL - 0.02, rings: 3, segs: 5 });   // 藕节小手
-    out.fore = pf.build();
-    const pt = prims(T);
-    pt.cyl(P.legW * 0.55, P.legW * 0.62, P.thighL, { y: -P.thighL / 2, radial: 6 });
-    out.thigh2 = pt.build();
-    const ps = prims(T);
-    ps.cyl(P.legW * 0.48, P.legW * 0.55, P.shinL, { y: -P.shinL / 2, radial: 6 });
-    ps.ellipsoid(P.legW * 0.6, 0.035, P.legW * 0.75, { y: -P.shinL - 0.02, z: 0.01, rings: 3, segs: 5 });
-    out.shin2 = ps.build();
-  }
-  {
-    // 棉花凸出：髋缝两簇（爬行种破口在关节）
-    out.cotton = cottonCluster(T, 20260902, [
-      [P.torsoW * 0.4, -0.06, -P.torsoD * 0.3], [-P.torsoW * 0.38, -0.05, -P.torsoD * 0.28],
-    ]);
-  }
-  TOTTLEGEO.set(P, out);
-  return out;
-}
-
-export function buildTottle(spec, mats, actor) {
+function buildQuaddollRig(spec, mats, actor, G) {
   const P = spec.proportions;
-  const G = tottleGeometry(P);
   const { meshes, add, count } = mkActorTools(mats, actor);
   const R = () => Math.random();
   const group = new THREE.Group();
@@ -816,116 +795,398 @@ export function buildTottle(spec, mats, actor) {
 
   const jw = 0.92 + R() * 0.16;
   add(torso, G.torso, mats.wrap, 'body').scale.set(jw, 1, 1);
-  add(torso, G.pelvis, mats.wrapDark, 'body').scale.set(jw, 1, 1);
-  add(torso, G.cotton, mats.tatter, 'body', true);
+  if (G.mark) add(torso, G.mark, mats.wrapDark, 'body').scale.set(jw, 1, 1);   // 斑纹带（猫鞍斑/狗臀斑）
+  if (G.cotton) add(torso, G.cotton, mats.tatter, 'body', true);              // 棉花凸出 noHit
+  if (G.patches) add(torso, G.patches, mats.accent, 'body', true);            // 补丁布块 noHit
+  if (G.dashes) add(torso, G.dashes, mats.deep, 'body', true);                // 虚线针脚 noHit
+  if (G.tail) add(torso, G.tail, mats.wrapDark, 'body', true);                // 尾（弧度烘进几何定格；细长件 noHit）
 
-  // 大头：颈关节扛抬起角（动画每帧写 headUp，同 crawler 契约）
+  // 头（颈关节扛抬起角，动画每帧写 headDroop，同 centaur 契约）
   const neck = new THREE.Group();
-  neck.position.set(0, P.torsoH * 0.4, 0.08 + P.torsoD * 0.55);
+  neck.position.set(0, P.torsoH * 0.30, P.torsoD * 0.46);
   torso.add(neck);
   add(neck, G.skull, mats.wrap, 'head');
-  add(neck, G.buttons, mats.deep, 'head');
-  add(neck, G.threads, mats.tatter, 'head', true);
-  add(neck, G.pacifier, mats.accent, 'head');
-  add(neck, G.headSeam, mats.deep, 'head', true);
+  add(neck, G.buttons, mats.eye, 'head');                                     // 纽扣扣体
+  if (G.holes) add(neck, G.holes, mats.deep, 'head', true);                   // 四孔深点 noHit
+  if (G.threads) add(neck, G.threads, G.threadLight ? mats.tatter : mats.deep, 'head', true);  // 线迹 noHit
+  if (G.muzzle) add(neck, G.muzzle, mats.wrapDark, 'head');                   // 吻部（pupdoll；并头盒是脸的一部分）
+  if (G.nose) add(neck, G.nose, mats.deep, 'head', true);                     // 鼻头 noHit
+  if (G.ears) add(neck, G.ears, mats.wrapDark, 'head', true);                 // 尖耳/垂耳 noHit（不撑头盒）
+  if (G.whiskers) add(neck, G.whiskers, mats.tatter, 'head', true);           // 毛线胡须 noHit
 
-  // 四肢（爬行者契约：臂=前肢 arms[0..1]，腿=后肢 legs[0..1]）
-  const arms = [];
+  // 四腿：centaur 槽位约定 legs[0..1] = 前对（HIP/KNEE）、legs[2..3] = 后对
+  // （LEG2）；外张/后掠全走静态 mount 烘进几何，注册关节只扛步态。
   const legs = [];
   for (const side of [-1, 1]) {
-    const mountA = new THREE.Group();
-    mountA.position.set(side * P.torsoW * 0.5 * jw, 0, 0.06 + P.torsoD * 0.18);
-    mountA.rotation.z = side * P.splayArm;
-    mountA.rotation.y = -side * 0.12;
-    torso.add(mountA);
-    const shoulder = new THREE.Group();
-    mountA.add(shoulder);
-    add(shoulder, G.upper, mats.wrap, 'body');
-    const elbow = new THREE.Group();
-    elbow.position.y = -P.upperL;
-    shoulder.add(elbow);
-    add(elbow, G.fore, mats.wrapDark, 'body');
-    arms.push({ shoulder, elbow, side });
+    // 前腿：肩线下，近垂直
+    const mountF = new THREE.Group();
+    mountF.position.set(side * P.torsoW * 0.42 * jw, -P.torsoH * 0.05, P.torsoD * 0.30);
+    mountF.rotation.z = side * 0.08;
+    torso.add(mountF);
+    const hipF = new THREE.Group();
+    mountF.add(hipF);
+    add(hipF, G.frontUp, mats.wrap, 'body');
+    if (G.seamLegF) add(hipF, G.seamLegF, mats.deep, 'body', true);           // 前腿根接缝 noHit
+    const kneeF = new THREE.Group();
+    kneeF.position.y = -P.upperL;
+    hipF.add(kneeF);
+    add(kneeF, G.frontLo, mats.wrapDark, 'body');
+    legs.push({ hip: hipF, knee: kneeF, side });
 
-    const mountL = new THREE.Group();
-    mountL.position.set(side * P.torsoW * 0.42 * jw, -P.torsoH * 0.1, 0.06 - P.torsoD * 0.38);
-    mountL.rotation.z = side * P.splayLeg;
-    mountL.rotation.y = side * 0.28;
-    torso.add(mountL);
-    const hip = new THREE.Group();
-    mountL.add(hip);
-    add(hip, G.thigh2, mats.wrap, 'body');
-    const knee = new THREE.Group();
-    knee.position.y = -P.thighL;
-    hip.add(knee);
-    add(knee, G.shin2, mats.wrapDark, 'body');
-    legs.push({ hip, knee, side });
+    // 后腿：骨盆下，略后掠（犬科/猫科站式）
+    const mountR = new THREE.Group();
+    mountR.position.set(side * P.torsoW * 0.40 * jw, -P.torsoH * 0.02, -P.torsoD * 0.38);
+    mountR.rotation.z = side * 0.10;
+    mountR.rotation.x = 0.14;
+    torso.add(mountR);
+    const hipR = new THREE.Group();
+    mountR.add(hipR);
+    add(hipR, G.rearUp, mats.wrap, 'body');
+    if (G.seamLegR) add(hipR, G.seamLegR, mats.deep, 'body', true);           // 后腿根接缝 noHit
+    const kneeR = new THREE.Group();
+    kneeR.position.y = -P.thighL;
+    hipR.add(kneeR);
+    add(kneeR, G.rearLo, mats.wrapDark, 'body');
+    legs.push({ hip: hipR, knee: kneeR, side });
   }
 
   const tatters = [];
-  const blob = contactShadow((spec.radius ?? 0.3) * 1.8);
+  const blob = contactShadow((spec.radius ?? 0.26) * 1.8);
   blob.position.y = 0.02;
   group.add(blob);
   const asym = { scale: 0.90 + R() * 0.20, tilt: 0, droop: 0, reach: 0 };
 
   return {
-    group, body, hips, torso, neck, legs, arms, tatters, meshes,
+    group, body, hips, torso, neck, legs, arms: [], tatters, meshes,
     triangles: count(), asym, lead: 1, blob,
-    stepSpan: 2 * ((P.upperL + P.foreL + P.thighL + P.shinL) / 4) * 0.8,
+    // 对角对一步的地面覆盖：四腿平均展开长（strideRate 步频推导用）
+    stepSpan: 2 * ((P.upperL + P.foreL + P.thighL + P.shinL) / 4) * 0.85,
     gait: { stride: 0.9 + R() * 0.2, swing: 1 },
   };
 }
 
-export const TOTTLE = {
-  id: 'tottle',
-  name: 'Tottle（婴儿偶）',
+/** 四足小偶共享身体底子：横放布桶躯干 + 布筒四腿 + 大圆头 + 腿根接缝。
+ *  物种差全在头部件/斑纹/尾（各物种几何函数里补）。 */
+function petBaseGeometry(P, T) {
+  const out = {};
+  const D = P.torsoD, W = P.torsoW;
+  {
+    // 躯干：横放布桶（lathe rx=π/2：尾端收细、胸肩饱满）
+    const p = prims(T);
+    p.lathe([[0.001, -D * 0.52], [W * 0.34, -D * 0.48], [W * 0.50, -D * 0.26],
+      [W * 0.54, D * 0.04], [W * 0.50, D * 0.30], [W * 0.36, D * 0.46], [0.001, D * 0.50]],
+      { rx: Math.PI / 2, segs: 8 });
+    out.torso = p.build();
+  }
+  {
+    // 布筒四腿（两段圆节 + 布爪垫；前后腿分两套几何，后腿略粗）
+    const mkLeg = (up, lo, r0) => {
+      const pu = prims(T);
+      pu.cyl(r0 * 0.62, r0 * 0.70, up, { y: -up / 2, radial: 6 });
+      const u = pu.build();
+      const pl = prims(T);
+      pl.cyl(r0 * 0.55, r0 * 0.62, lo, { y: -lo / 2, radial: 6 });
+      pl.ellipsoid(r0 * 0.68, 0.030, r0 * 0.85, { y: -lo - 0.01, z: 0.012, rings: 3, segs: 5 });  // 布爪
+      return [u, pl.build()];
+    };
+    [out.frontUp, out.frontLo] = mkLeg(P.upperL, P.foreL, P.legW);
+    [out.rearUp, out.rearLo] = mkLeg(P.thighL, P.shinL, P.legW * 1.1);
+  }
+  // 腿根接缝环（deep 槽）
+  out.seamLegF = seamRing(T, P.legW * 0.72, 0.016);
+  out.seamLegR = seamRing(T, P.legW * 0.80, 0.016);
+  {
+    // 大圆头（小偶头大）+ 微凸颊
+    const p = prims(T);
+    p.ellipsoid(P.headW * 0.52, P.headH * 0.50, P.headD * 0.50, { y: P.headH * 0.50, rings: 5, segs: 8 });
+    for (const s of [-1, 1]) {
+      p.ellipsoid(P.headW * 0.17, P.headH * 0.15, P.headD * 0.17,
+        { x: s * P.headW * 0.30, y: P.headH * 0.38, z: P.headD * 0.34, rings: 3, segs: 5 });
+    }
+    out.skull = p.build();
+  }
+  return out;
+}
 
-  speed: 2.1,            // 爬行很快（婴儿爬扑过来的压迫感）
-  scale: 0.55,
-  height: 0.6,
-  radius: 0.28,
+/** 链式布尾（弧度烘进几何定格——centaur 支不写破布列）：
+ *  从尾根逐节递进转角，segsT = [[rx, rBot, rTop, len], ...]。 */
+function chainTail(p, root, segsT) {
+  let tip = root.slice();
+  for (const [rx, r0, r1, len] of segsT) {
+    const dir = [0, Math.cos(rx), Math.sin(rx)];
+    p.cyl(r1, r0, len, {
+      x: tip[0] + dir[0] * len / 2, y: tip[1] + dir[1] * len / 2, z: tip[2] + dir[2] * len / 2,
+      rx, radial: 5,
+    });
+    tip = [tip[0] + dir[0] * len, tip[1] + dir[1] * len, tip[2] + dir[2] * len];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 物种三：小猫偶 kitdoll —— 橘猫小偶（尖耳 + 毛线胡须 + 细尾上翘；
+// 四足小碎步，体型比小孩偶小一号）
+// ---------------------------------------------------------------------------
+
+const KITDOLLGEO = new Map();
+
+function kitdollGeometry(P) {
+  let out = KITDOLLGEO.get(P);
+  if (out) return out;
+  const T = WRAP_TILES;
+  out = petBaseGeometry(P, T);
+  const D = P.torsoD, W = P.torsoW, H = P.torsoH;
+  {
+    // 橘猫鞍斑（wrapDark：背上一圈斑纹带，随桶面）
+    const p = prims(T);
+    p.lathe([[0.001, -D * 0.30], [W * 0.52, -D * 0.24], [W * 0.56, -D * 0.02],
+      [W * 0.53, D * 0.16], [0.001, D * 0.20]], { rx: Math.PI / 2, segs: 8 });
+    out.mark = p.build();
+  }
+  {
+    // 尖耳（wrapDark 四棱锥，向外微撇）
+    const p = prims(T);
+    for (const s of [-1, 1]) {
+      p.cyl(0, 0.045, 0.09, {
+        x: s * P.headW * 0.30, y: P.headH * 0.96, z: -P.headD * 0.06,
+        rz: -s * 0.28, rx: -0.15, radial: 4 });
+    }
+    out.ears = p.build();
+  }
+  {
+    // 毛线胡须（tatter 槽米白：每侧三根横出细丝，贴颊外伸）
+    const quads = [];
+    for (const s of [-1, 1]) {
+      for (let k = 0; k < 3; k++) {
+        const ty = 0.14 - k * 0.12;
+        const tz = 0.30;
+        const tl = Math.hypot(1, ty, tz);
+        quads.push({
+          c: [s * P.headW * 0.50, P.headH * (0.44 - k * 0.06), P.headD * 0.38],
+          t: [s / tl, ty / tl, tz / tl], n: [0, 1, 0], len: 0.10, w: 0.003 });
+      }
+    }
+    out.whiskers = withWhiteColors(quadStrips(quads));
+  }
+  {
+    // 细尾上翘（wrapDark 橘尾：三节渐细递进上翘）
+    const p = prims(T);
+    chainTail(p, [0, H * 0.20, -D * 0.50],
+      [[-0.85, 0.020, 0.016, 0.12], [-0.40, 0.016, 0.012, 0.11], [-0.05, 0.012, 0.007, 0.10]]);
+    out.tail = p.build();
+  }
+  {
+    // 纽扣眼（木棕扣四孔交叉线）
+    const be = buttonEyes(T, P, { style: 'cross' });
+    out.buttons = be.buttons;
+    out.holes = be.holes;
+    out.threads = be.threads;
+    out.threadLight = be.threadLight;
+  }
+  {
+    // 体侧补丁（accent 布块 + deep 虚线针脚闭环）
+    const pk = parts(T);
+    pk.box(0.10, 0.09, 0.012, { x: W * 0.53, y: 0.02, z: -D * 0.05, ry: 0.12, chamfer: 0.004 });
+    out.patches = pk.build();
+    const x0 = W * 0.53 + 0.008, y0 = 0.02, z0 = -D * 0.05;
+    out.dashes = stitchPath([
+      [x0, y0 - 0.045, z0 - 0.05], [x0, y0 + 0.045, z0 - 0.05],
+      [x0, y0 + 0.045, z0 + 0.05], [x0, y0 - 0.045, z0 + 0.05],
+      [x0, y0 - 0.045, z0 - 0.05],
+    ], 0.016, 0.011, 0.004);
+  }
+  {
+    // 棉花凸出：左后腿根缝 + 右肩缝两簇
+    out.cotton = cottonCluster(T, 20260906, [
+      [-W * 0.38, 0.0, -D * 0.30], [W * 0.36, 0.03, D * 0.12],
+    ]);
+  }
+  KITDOLLGEO.set(P, out);
+  return out;
+}
+
+export function buildKitdoll(spec, mats, actor) {
+  return buildQuaddollRig(spec, mats, actor, kitdollGeometry(spec.proportions));
+}
+
+export const KITDOLL = {
+  id: 'kitdoll',
+  name: 'Kitdoll（小猫偶）',
+
+  speed: 2.8,            // 小猫窜得快（小碎步高步频）
+  scale: 0.78,
+  height: 0.48,
+  radius: 0.26,
 
   palette: {
-    wrap: 0xe0d8c8,      // 浅米连体衣
-    wrapDark: 0xa8b8a0,  // 浅绿下段
+    wrap: 0xe0d0b8,      // 米黄棉布（calico 印花）
+    wrapDark: 0xc07838,  // 橘（鞍斑/尖耳/细尾/布爪）
     deep: 0x14100c,
-    eye: 0x8a7a6a,
+    eye: 0x9a6a38,       // 木棕扣
     eyeGlow: 0.08,
-    accent: 0xc8a8b8,    // 浅粉奶嘴
-    tatter: 0xe8e0d0,
+    accent: 0x7a8a6a,    // 灰绿补丁
+    tatter: 0xe8e0d0,    // 米白（棉花/胡须）
   },
 
   proportions: {
-    rideHeight: 0.26,
-    torsoW: 0.30, torsoH: 0.18, torsoD: 0.38,
-    headW: 0.24, headH: 0.22, headD: 0.23,   // 大头（婴儿头占半身）
-    armW: 0.07, upperL: 0.20, foreL: 0.22,
-    legW: 0.08, thighL: 0.20, shinL: 0.22,
-    splayArm: 2.0,        // 前肢外张（肘高过背的爬姿）
-    splayLeg: 1.95,
+    rideHeight: 0.24,
+    torsoW: 0.22, torsoH: 0.20, torsoD: 0.46,
+    headW: 0.22, headH: 0.20, headD: 0.22,   // 大头（小偶头占比例大）
+    legW: 0.075, upperL: 0.12, foreL: 0.12, thighL: 0.13, shinL: 0.12,
     tatterRest: 0,
     tatters: [],
   },
 
   gait: {
-    crawl: true,         // pipeline/gait.js fillCrawlJoints 分派
-    rate: 1.2,
-    stride: 0.55,
-    lift: 0.30,
-    flex: 0.55,
-    elBend: 2.45,
-    knBend: 2.30,
-    swayRoll: 0.10,      // 爬起来左右晃得比 crawler 大（软婴儿）
-    swayYaw: 0.12,
-    bob: 0.04,
-    headUp: -0.9,        // 大头抬起前探
-    headScan: 0.6,       // 错拍扫视（找人的读法）
+    kind: 'centaur',     // 矢状面对角四足（fillCentaurJoints / animateCentaurbot）
+    rate: 1.6,
+    stride: 0.50,        // 小跨幅高步频 = 猫的小碎步
+    knBend: 0.50,        // 膝静止折角（动画每帧还原）
+    flex: 0.65,          // 摆动收拢
+    bob: 0.035,
+    swayRoll: 0.07, swayYaw: 0.10,
+    lean: 0.0,
+    headDroop: -0.28,    // 头抬平前视（-x = 抬起）
+    headScan: 0.45,      // 错拍扫视（猫的好奇读法）
+    // 臂通道对本种无几何挂载（静默），但 fillCentaurJoints 攻击支会读这些字段
+    // ——必须给齐，否则 windup 时四元数写 NaN 进纹理行
+    armReach: 0, armSplay: 0, elBend: 0, armSwing: 0,
+    arm2Reach: 0, arm2Splay: 0, el2Bend: 0, arm2Swing: 0,
   },
 
   makeMaterials: makeDollMaterials,
-  build: buildTottle,
-  animate: animateCrawler,
+  build: buildKitdoll,
+  animate: animateCentaurbot,   // arms 空数组：臂循环零迭代，安全复用
 };
+
+// ---------------------------------------------------------------------------
+// 物种四：小狗偶 pupdoll —— 棕白花狗小偶（垂耳 + 吻部 + 短尾上翘 + 臀斑；
+// 比小猫略壮，步幅大一号）
+// ---------------------------------------------------------------------------
+
+const PUPDOLLGEO = new Map();
+
+function pupdollGeometry(P) {
+  let out = PUPDOLLGEO.get(P);
+  if (out) return out;
+  const T = WRAP_TILES;
+  out = petBaseGeometry(P, T);
+  const D = P.torsoD, W = P.torsoW, H = P.torsoH;
+  {
+    // 棕臀斑（wrapDark：后身一圈花斑带，随桶面）
+    const p = prims(T);
+    p.lathe([[0.001, -D * 0.54], [W * 0.36, -D * 0.50], [W * 0.52, -D * 0.34],
+      [W * 0.54, -D * 0.16], [0.001, -D * 0.12]], { rx: Math.PI / 2, segs: 8 });
+    out.mark = p.build();
+  }
+  {
+    // 垂耳（wrapDark 两片布耳贴颊下垂）
+    const p = prims(T);
+    for (const s of [-1, 1]) {
+      p.ellipsoid(0.018, 0.075, 0.045, {
+        x: s * P.headW * 0.50, y: P.headH * 0.55, z: -P.headD * 0.02,
+        rz: s * 0.25, rings: 3, segs: 5 });
+    }
+    out.ears = p.build();
+  }
+  {
+    // 吻部（wrapDark 短吻筒 + deep 鼻头；并头盒是脸的一部分）
+    const p = prims(T);
+    p.cyl(P.headW * 0.15, P.headW * 0.21, P.headD * 0.30,
+      { y: P.headH * 0.30, z: P.headD * 0.56, rx: Math.PI / 2 - 0.15, radial: 6 });
+    out.muzzle = p.build();
+    const pn = prims(T);
+    pn.ellipsoid(0.020, 0.016, 0.014, { y: P.headH * 0.34, z: P.headD * 0.72, rings: 3, segs: 5 });
+    out.nose = pn.build();
+  }
+  {
+    // 短尾上翘（wrapDark 两节）
+    const p = prims(T);
+    chainTail(p, [0, H * 0.22, -D * 0.50],
+      [[-0.50, 0.022, 0.018, 0.09], [-0.05, 0.018, 0.010, 0.08]]);
+    out.tail = p.build();
+  }
+  {
+    // 纽扣眼（牛角米白扣平行两道线）
+    const be = buttonEyes(T, P, { style: 'parallel' });
+    out.buttons = be.buttons;
+    out.holes = be.holes;
+    out.threads = be.threads;
+    out.threadLight = be.threadLight;
+  }
+  {
+    // 体侧补丁（accent 布块 + deep 虚线针脚闭环）
+    const pk = parts(T);
+    pk.box(0.10, 0.09, 0.012, { x: -W * 0.53, y: 0.02, z: D * 0.05, ry: -0.12, chamfer: 0.004 });
+    out.patches = pk.build();
+    const x0 = -W * 0.53 - 0.008, y0 = 0.02, z0 = D * 0.05;
+    out.dashes = stitchPath([
+      [x0, y0 - 0.045, z0 - 0.05], [x0, y0 + 0.045, z0 - 0.05],
+      [x0, y0 + 0.045, z0 + 0.05], [x0, y0 - 0.045, z0 + 0.05],
+      [x0, y0 - 0.045, z0 - 0.05],
+    ], 0.016, 0.011, 0.004);
+  }
+  {
+    // 棉花凸出：右臀缝 + 左肩缝两簇
+    out.cotton = cottonCluster(T, 20260907, [
+      [W * 0.38, 0.01, -D * 0.28], [-W * 0.36, 0.03, D * 0.14],
+    ]);
+  }
+  PUPDOLLGEO.set(P, out);
+  return out;
+}
+
+export function buildPupdoll(spec, mats, actor) {
+  return buildQuaddollRig(spec, mats, actor, pupdollGeometry(spec.proportions));
+}
+
+export const PUPDOLL = {
+  id: 'pupdoll',
+  name: 'Pupdoll（小狗偶）',
+
+  speed: 2.4,
+  scale: 0.82,
+  height: 0.52,
+  radius: 0.28,
+
+  palette: {
+    wrap: 0xd8ccbc,      // 米白棉布
+    wrapDark: 0x7a5238,  // 棕（垂耳/吻部/臀斑/短尾/布爪）
+    deep: 0x14100c,
+    eye: 0xd0bf9a,       // 牛角米白扣
+    eyeGlow: 0.08,
+    accent: 0x9a6a4a,    // 棕补丁
+    tatter: 0xe8e0d0,
+  },
+
+  proportions: {
+    rideHeight: 0.26,
+    torsoW: 0.24, torsoH: 0.22, torsoD: 0.50,
+    headW: 0.24, headH: 0.22, headD: 0.24,
+    legW: 0.08, upperL: 0.13, foreL: 0.13, thighL: 0.14, shinL: 0.13,
+    tatterRest: 0,
+    tatters: [],
+  },
+
+  gait: {
+    kind: 'centaur',
+    rate: 1.4,
+    stride: 0.55,        // 步幅比猫大一号（狗的颠步）
+    knBend: 0.45,
+    flex: 0.60,
+    bob: 0.045,
+    swayRoll: 0.09, swayYaw: 0.12,
+    lean: 0.02,
+    headDroop: -0.22,
+    headScan: 0.35,
+    armReach: 0, armSplay: 0, elBend: 0, armSwing: 0,
+    arm2Reach: 0, arm2Splay: 0, el2Bend: 0, arm2Swing: 0,
+  },
+
+  makeMaterials: makeDollMaterials,
+  build: buildPupdoll,
+  animate: animateCentaurbot,
+};
+
 
 // ---------------------------------------------------------------------------
 // 物种四：双子抱偶 twinsie —— 小孩体型变体：大孩背后绑着一个迷你偶
@@ -954,9 +1215,11 @@ function twinsieGeometry(P) {
     out.hair = p.build();
   }
   {
-    const be = buttonEyes(T, P, {});
+    const be = buttonEyes(T, P, { style: 'cross', threadLight: true });   // 深棕扣配米白线
     out.buttons = be.buttons;
+    out.holes = be.holes;
     out.threads = be.threads;
+    out.threadLight = be.threadLight;
     out.mouth = stitchMouth(P, 0.5, 0.08);
   }
   {
@@ -970,7 +1233,7 @@ function twinsieGeometry(P) {
       p.cyl(0.014, 0.016, 0.12, { x: bx + s * 0.04, y: by - 0.14, z: bz, rx: 0.3, radial: 4 });              // 小腿
     }
     out.miniBody = p.build();
-    // 迷你偶纽扣眼（deep 槽两点，越过肩线前视）
+    // 迷你偶纽扣眼（eye 槽扣色两点，越过肩线前视）
     const pe = prims(T);
     for (const s of [-1, 1]) {
       pe.cyl(0.012, 0.012, 0.008, { x: bx + 0.02 + s * 0.026, y: by + 0.165, z: bz + 0.065, rx: Math.PI / 2, radial: 6 });
@@ -1002,7 +1265,7 @@ export function buildTwinsie(spec, mats, actor) {
   const { add, count } = rig.tools;
   // 背挂迷你偶：region body（并躯干盒——绑在背上就是它该在的判定位）
   add(rig.torso, G.miniBody, mats.wrap, 'body');
-  add(rig.torso, G.miniEyes, mats.deep, 'body', true);    // 小扣眼贴面件 noHit
+  add(rig.torso, G.miniEyes, mats.eye, 'body', true);    // 小扣眼贴面件 noHit
   add(rig.torso, G.straps, mats.wrapDark, 'body', true);
   rig.triangles = count();
   return rig;
@@ -1021,7 +1284,7 @@ export const TWINSIE = {
     wrap: 0xd0c0c8,      // 米紫棉布
     wrapDark: 0x6a5a7a,  // 紫罩袍
     deep: 0x14100c,
-    eye: 0x8a7a6a,
+    eye: 0x5a3a28,       // 深棕扣（配米白线迹）
     eyeGlow: 0.08,
     accent: 0x7a8a9a,    // 蓝灰（毛线帽/补丁）
     tatter: 0xe8e0d0,
@@ -1033,7 +1296,7 @@ export const TWINSIE = {
     torsoY: 0.08, chestW: 0.44, chestH: 0.46,
     torsoProfile: KID_PROFILE,
     shoulderX: 0.20, shoulderY: 0.38, armW: 0.09, upperL: 0.31, foreL: 0.33,
-    headY: 0.58, headW: 0.31, headH: 0.33, headD: 0.30,
+    headY: 0.50, headW: 0.31, headH: 0.33, headD: 0.30,  // 头坐到桶顶不留颈缝
     tatterRest: 0.3,
     tatters: [
       { on: 'torso', x: 0.11, y: 0.05, z: 0.09, w: 0.05, h: 0.24, yaw: 0.3, cut: 2, swing: 1.2, out: 0.18 },
@@ -1115,9 +1378,11 @@ function butlerGeometry(P) {
     const p = prims(T);
     p.ellipsoid(P.headW * 0.48, P.headH * 0.52, P.headD * 0.46, { y: P.headH * 0.5, rings: 5, segs: 8 });
     out.skull = p.build();
-    const be = buttonEyes(T, P, {});
+    const be = buttonEyes(T, P, { style: 'parallel', threadLight: true });   // 深牛角扣配米白线
     out.buttons = be.buttons;
+    out.holes = be.holes;
     out.threads = be.threads;
+    out.threadLight = be.threadLight;
     // 宽缝线微笑（管家的咧嘴）
     out.mouth = stitchMouth(P, 0.85, 0.20);
   }
@@ -1165,7 +1430,7 @@ export const BUTLER = {
     wrap: 0xb8b0a0,      // 浅灰棉布（脸/臂）
     wrapDark: 0x2e2e34,  // 黑燕尾服
     deep: 0x14100c,
-    eye: 0x8a7a6a,
+    eye: 0x3a3230,       // 深牛角扣（别纯黑；配米白线迹）
     eyeGlow: 0.08,
     accent: 0x8a8a92,    // 灰补丁
     tatter: 0xe8e0d0,
@@ -1260,9 +1525,11 @@ function bigdollGeometry(P) {
     const p = prims(T);
     p.ellipsoid(P.headW * 0.52, P.headH * 0.48, P.headD * 0.5, { y: P.headH * 0.46, rings: 5, segs: 8 });
     out.skull = p.build();
-    const be = buttonEyes(T, P, {});
+    const be = buttonEyes(T, P, { style: 'cross' });   // 大木扣四孔交叉粗线
     out.buttons = be.buttons;
+    out.holes = be.holes;
     out.threads = be.threads;
+    out.threadLight = be.threadLight;
     // 锯齿大嘴（缝线 Z 字折线 = 「破损被粗缝上」的读法）
     const w = P.headW * 0.7, y = P.headH * 0.22, z = P.headD * 0.52;
     const pts = [];
@@ -1309,7 +1576,7 @@ export const BIGDOLL = {
     wrap: 0xc8b89a,      // 旧黄棉布
     wrapDark: 0x6a5a48,  // 深棕下段
     deep: 0x14100c,
-    eye: 0x8a7a6a,
+    eye: 0x7a4a28,       // 大木扣
     eyeGlow: 0.08,
     accent: 0x4a6a8a,    // 蓝补丁（对比色）
     tatter: 0xe8e0d0,

@@ -20,7 +20,7 @@
 <body>
 <div id="panel">
   <b>Horde — baked single geometry + InstancedMesh</b><br>
-  <small>Default "all mix" of 34 species; series mixes (zombie/robot/flyer/dragon/undead/golem/doll hordes) or 35 single-species picks — one bake + joint texture per species</small>
+  <small>Default "all mix" of 35 species; series mixes (zombie/robot/flyer/dragon/undead/golem/doll hordes) or 36 single-species picks — one bake + joint texture per species</small>
   <div style="margin:6px 0">
     Mix
     <button data-species="mix">All mix</button><button data-species="mix_zombie">Zombies</button><button data-species="mix_robot">Robots</button><button data-species="mix_fly">Flyers</button><button data-species="mix_dragon">Dragons</button><button data-species="mix_undead">Undead</button><button data-species="mix_golem">Golems</button><button data-species="mix_doll">Dolls</button>
@@ -37,7 +37,7 @@
     <br><small>Golem</small>
     <button data-species="rockgolem">rockgolem</button><button data-species="magmagolem">magmagolem</button><button data-species="frostgolem">frostgolem</button><button data-species="crystalgolem">crystalgolem</button>
     <br><small>Doll</small>
-    <button data-species="dollette">dollette</button><button data-species="dollad">dollad</button><button data-species="tottle">tottle</button><button data-species="twinsie">twinsie</button><button data-species="butler">butler</button><button data-species="bigdoll">bigdoll</button>
+    <button data-species="dollette">dollette</button><button data-species="dollad">dollad</button><button data-species="kitdoll">kitdoll</button><button data-species="pupdoll">pupdoll</button><button data-species="twinsie">twinsie</button><button data-species="butler">butler</button><button data-species="bigdoll">bigdoll</button>
   </div>
   <div style="margin:6px 0">
     Mode
@@ -109,7 +109,8 @@ const MIX_RECIPES = {
     { id: 'crystalgolem', share: 0.01, min: 1 },
     { id: 'dollette',   share: 0.03 },
     { id: 'dollad',     share: 0.03 },
-    { id: 'tottle',     share: 0.02 },
+    { id: 'kitdoll',    share: 0.01 },
+    { id: 'pupdoll',    share: 0.01 },
     { id: 'twinsie',    share: 0.02 },
     { id: 'butler',     share: 0.01, min: 1 },
     { id: 'bigdoll',    share: 0.01, min: 1 },
@@ -164,12 +165,13 @@ const MIX_RECIPES = {
     { id: 'crystalgolem', share: 0.22, min: 1 },
     { id: 'magmagolem',   share: 0.12, min: 1 },
   ],
-  // 玩偶海：dollette/dollad 小孩铺底，tottle（爬婴）/twinsie 中坚，
+  // 玩偶海：dollette/dollad 小孩铺底，kitdoll/pupdoll（猫狗小偶）/twinsie 中坚，
   // butler 少，bigdoll Boss 稀（min 1）
   mix_doll: [
-    { id: 'dollette', share: 0.26 },
-    { id: 'dollad',   share: 0.26 },
-    { id: 'tottle',   share: 0.18, min: 1 },
+    { id: 'dollette', share: 0.22 },
+    { id: 'dollad',   share: 0.22 },
+    { id: 'kitdoll',  share: 0.13, min: 1 },
+    { id: 'pupdoll',  share: 0.13, min: 1 },
     { id: 'twinsie',  share: 0.16, min: 1 },
     { id: 'butler',   share: 0.08, min: 1 },
     { id: 'bigdoll',  share: 0.06, min: 1 },
@@ -182,7 +184,7 @@ const SINGLE_IDS = ['zombie', 'bloater', 'runner', 'brute', 'screecher', 'crawle
   'sprite', 'earth', 'frost', 'draco',
   'skeltrooper', 'bonehound', 'wraith', 'lich', 'graveknight', 'bonebrute',
   'rockgolem', 'magmagolem', 'frostgolem', 'crystalgolem',
-  'dollette', 'dollad', 'tottle', 'twinsie', 'butler', 'bigdoll'];
+  'dollette', 'dollad', 'kitdoll', 'pupdoll', 'twinsie', 'butler', 'bigdoll'];
 
 const q0 = new URLSearchParams(location.search);
 const sel = q0.get('species') || 'mix';

@@ -46,12 +46,17 @@ the horde, and is fully hittable/dismemberable.
      available as an unused retained mechanism (bake.js `userData.plate` /
      `region:'core'` tags + hitvol.js plate/core multipliers; mask-aware hit
      skipping — severed limbs no longer ghost-block shots — is a kept bug fix)
-   - rag doll (creepy-cute, mostly child-sized) → `src/species/dolls.js`
+   - rag doll (creepy-cute, mostly child-sized; quadruped kitty/puppy dolls
+     on the centaur contract via `buildQuaddollRig`) → `src/species/dolls.js`
      (`buildDollRig` on the humanoid contract, "floppy" gait via big
-     `headLoll`/arm swing; family signatures: button eyes with stitched
-     cross-holes — dollette's left button droops on a thread —, seeded
-     irregular stuffing-cotton clusters bulging from seams, contrast patches
-     with dashed stitch lines (`stitchPath`/`patchOnBarrel` decal strips),
+     `headLoll`/arm swing; family signatures: true button eyes (lathe button
+     body with raised rim + recessed four-hole center on the eye slot — the
+     stock eye material is a near-black glow-eye, `makeDollMaterials`
+     replaces it with a tactile half-gloss button material, `palette.eye` =
+     button colour — plus contrast thread, crossed X or parallel, dark on
+     light buttons / off-white on dark ones), seeded irregular
+     stuffing-cotton clusters bulging from seams, contrast patches with
+     dashed stitch lines (`stitchPath`/`patchOnBarrel` decal strips),
      limb seam rings, and `calicoMaps()` printed cotton albedo — gingham +
      tiny florals drawn in near-white luminance only, so palettes tint
      without the fleshMaps green shift; cotton/stitches/thread go on the

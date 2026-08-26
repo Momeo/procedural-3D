@@ -26,7 +26,7 @@ import {
   ROCKGOLEM, MAGMAGOLEM, FROSTGOLEM, CRYSTALGOLEM,
 } from './golem.js';
 import {
-  DOLLETTE, DOLLAD, TOTTLE, TWINSIE, BUTLER, BIGDOLL,
+  DOLLETTE, DOLLAD, KITDOLL, PUPDOLL, TWINSIE, BUTLER, BIGDOLL,
 } from './dolls.js';
 
 export const SPECIES = {
@@ -59,9 +59,10 @@ export const SPECIES = {
   magmagolem: { spec: MAGMAGOLEM,          factory: createZombieEx },  // 熔岩魔像：Boss 档 2.3x 黑岩裂炉
   frostgolem: { spec: FROSTGOLEM,          factory: createZombieEx },  // 冰霜魔像：苍白冰塔+半透明冰甲
   crystalgolem: { spec: CRYSTALGOLEM,      factory: createZombieEx },  // 水晶魔像：紫晶半悬浮+碎晶环
-  dollette:   { spec: DOLLETTE,            factory: createZombieEx },  // 布偶系列（dolls.js）：女童偶，连衣裙+毛线双辫+垂线纽扣眼
+  dollette:   { spec: DOLLETTE,            factory: createZombieEx },  // 布偶系列（dolls.js）：女童偶，连衣裙+毛线双辫+木棕纽扣眼
   dollad:     { spec: DOLLAD,              factory: createZombieEx },  // 男童偶：背带裤+短毛线头+双膝补丁
-  tottle:     { spec: TOTTLE,              factory: createZombieEx },  // 婴儿偶：最小只真爬行（crawl 契约）
+  kitdoll:    { spec: KITDOLL,             factory: createZombieEx },  // 小猫偶：四足小偶，尖耳+毛线胡须+细尾（centaur 步态）
+  pupdoll:    { spec: PUPDOLL,             factory: createZombieEx },  // 小狗偶：四足小偶，垂耳+吻部+短尾（centaur 步态）
   twinsie:    { spec: TWINSIE,             factory: createZombieEx },  // 双子抱偶：大孩背迷你偶
   butler:     { spec: BUTLER,              factory: createZombieEx },  // 管家人偶：瘦高成年弯背+燕尾摆+礼帽
   bigdoll:    { spec: BIGDOLL,             factory: createZombieEx },  // 巨型破损布偶：Boss 档 2.2x 棉花爆出
