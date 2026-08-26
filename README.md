@@ -2,7 +2,7 @@
 
 **Zero-asset, spec-driven procedural monsters — and living creature-weapons — for three.js.**
 
-**[▶ Live demos](https://momeo.github.io/procedural-3D/examples/)** — five interactive pages, no install, runs entirely in the browser.
+**[▶ Live demos](https://momeo.github.io/procedural-3D/examples/)** — six interactive pages, no install, runs entirely in the browser.
 
 Everything is generated in code: geometry, textures, materials, animation. No model files,
 no texture files, no build step — plain ES modules with a single peer dependency (`three`).
@@ -56,6 +56,9 @@ no texture files, no build step — plain ES modules with a single peer dependen
   vertex-collapse masks, and hand-rolled Verlet ragdoll deaths — no physics engine.
 - **5 gun pals**: living weapons (muzzle = mouth) with blinking eyes, look-back behavior
   and a four-state idle/aim/fire/overheat actor.
+- **5 bow pals**: a second living-weapon family — mecha compound / aurelia seraph /
+  dracobow / sakura fox / frostbite wisp on a `BowActor`: idle look-back, aim stare,
+  and a release reaction (recoil + limb flutter + eyes widen + motif flash).
 
 > Note: code comments are currently in Chinese (the library was developed in a
 > Chinese-language repo). Entry files carry English docstrings; PRs translating
@@ -81,6 +84,8 @@ no texture files, no build step — plain ES modules with a single peer dependen
 | Gun pal gallery | First-person hold (stagbite) |
 | ![Overheat state](docs/screenshots/gunpals_overheat.png) | ![Dismemberment & ragdoll](docs/screenshots/dismember_ragdoll.png) |
 | Overheat: smoke + heat glow | Dismemberment + Verlet ragdolls |
+| ![Bow pal gallery](docs/screenshots/bowpals_gallery.png) | ![Bow release reaction](docs/screenshots/bowpals_release.png) |
+| 5 living bows with arrows | Dracobow release: eyes widen |
 
 ## Quick start
 
@@ -128,7 +133,7 @@ Or serve the repository root over HTTP (`python -m http.server`) and open `examp
 | Page | What it shows | Test hook |
 |------|---------------|-----------|
 | `examples/single.html` | Single monster viewer: species switcher, attack/stagger triggers, hit-volume overlay (`?vol=1`) | `window.__pmtk` |
-| `examples/lineup.html` | All 35 species side by side — silhouette readability check | `window.__pmtk` |
+| `examples/lineup.html` | All 38 species side by side — silhouette readability check | `window.__pmtk` |
 | `examples/horde.html` | Horde instancing: mixes & single species, 24–600 instances, `?lod=0` / `?cull=0` A/B toggles | `window.__horde` |
 | `examples/shooter.html` | FPS hitscan playground: OBB part hits, dismemberment, ragdolls, blood pools | `window.__shooter` |
 | `examples/gunpals.html` | Gun pal gallery + first-person hold (keys 1–5, I/A/F/O states) | `window.__pmtk` |
