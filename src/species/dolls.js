@@ -378,7 +378,13 @@ function buildDollRig(spec, mats, actor, G) {
   torso.rotation.y = asym.reach * 0.85;
   hips.add(torso);
   add(torso, G.torso, mats.wrap, 'body').scale.set(j.chestW, j.chest, j.chestW);
-  if (G.outfit) add(torso, G.outfit, mats.wrapDark, 'body').scale.set(j.chestW, j.chest, j.chestW);
+  // 罩衣（燕尾服上身/及地长袍等）默认并躯干盒；G.outfitNoHit 的种（butler/
+  // doctordoll）罩衣比内身宽，标 noHit 让躯干盒只由内身决定——否则宽袍把
+  // 躯干盒撑到盖住臂盒，打手臂先中躯干（§4.8 撑盒同因，见 SKILL 踩坑）
+  if (G.outfit) add(torso, G.outfit, mats.wrapDark, 'body', !!G.outfitNoHit).scale.set(j.chestW, j.chest, j.chestW);
+  // 大摆裙（bridedoll）：与躯干同挂躯干叶、同 wrap 槽（烘焙合并/渲染逐比特
+  // 不变），但整件 noHit——A 字摆围 0.58 若并躯干盒会把臂盒整个吞掉
+  if (G.gown) add(torso, G.gown, mats.wrap, 'body', true).scale.set(j.chestW, j.chest, j.chestW);
   if (G.cotton) add(torso, G.cotton, mats.tatter, 'body', true);      // 棉花凸出 noHit
   if (G.patches) add(torso, G.patches, mats.accent, 'body', true);    // 补丁布块 noHit
   if (G.dashes) add(torso, G.dashes, mats.deep, 'body', true);        // 虚线针脚 noHit
@@ -1380,10 +1386,11 @@ function butlerGeometry(P) {
     const p = prims(T);
     p.lathe(P.torsoProfile, { segs: 10 });
     out.torso = p.build();
-    // 燕尾服上身（wrapDark 覆布 + 胸衬）
+    // 燕尾服上身（wrapDark 覆布 + 胸衬）——比内身桶宽，noHit 不撑躯干盒
     const po = prims(T);
     po.lathe([[0.17, 0.10], [0.21, 0.30], [0.22, 0.52], [0.19, 0.62], [0.14, 0.68]], { segs: 10 });
     out.outfit = po.build();
+    out.outfitNoHit = true;
   }
   out.seamShoulder = seamRing(T, P.armW * 0.62, 0.018);
   out.seamElbow = seamRing(T, P.armW * 0.55, 0.016);
@@ -1684,6 +1691,7 @@ function doctordollGeometry(P) {
     po.lathe([[0.32, -0.95], [0.29, -0.65], [0.25, -0.30], [0.22, 0.05],
       [0.21, 0.30], [0.20, 0.55], [0.15, 0.68]], { segs: 10 });
     out.outfit = po.build();
+    out.outfitNoHit = true;   // 及地长袍比内身宽得多，noHit 防撑躯干盒盖臂盒
   }
   out.seamShoulder = seamRing(T, P.armW * 0.62, 0.018);
   out.seamElbow = seamRing(T, P.armW * 0.55, 0.016);
@@ -1703,7 +1711,8 @@ function doctordollGeometry(P) {
     // 面具遮口鼻，无缝线嘴
   }
   {
-    // 鸟嘴面具（accent 象牙白，贴面件 noHit）：脸甲 + 前伸长喙（剪影核心）
+    // 鸟嘴面具（accent 象牙白；脸甲 + 前伸长喙是剪影核心）——面具本体，
+    // 并头盒（打嘴算爆头，装配处不标 noHit）
     const p = prims(T);
     p.ellipsoid(P.headW * 0.44, P.headH * 0.50, P.headD * 0.40,
       { y: P.headH * 0.48, z: P.headD * 0.10, rings: 5, segs: 8 });      // 脸甲
@@ -1747,8 +1756,9 @@ export function buildDoctordoll(spec, mats, actor) {
   const G = doctordollGeometry(spec.proportions);
   const P = spec.proportions;
   const { add, count } = rig.tools;
-  // 面具/镜圈贴面件（noHit——长喙撑头盒会让爆头打空气，§4.8 同因）
-  add(rig.neck, G.mask, mats.accent, 'head', true);
+  // 面具并入头盒：鸟嘴是面具本体，打嘴算爆头（用户定案；非细长装饰撑盒）
+  add(rig.neck, G.mask, mats.accent, 'head');
+  // 镜圈/箍带贴面细件仍 noHit（不撑头盒，§4.8 同因）
   add(rig.neck, G.goggles, mats.deep, 'head', true);
   // 宽檐黑帽（wrapDark；宽平檐+矮帽筒是医生的帽型，与 butler 高礼帽区分）
   const T = WRAP_TILES;
@@ -1875,16 +1885,17 @@ function bridedollGeometry(P) {
     out.fore = pf.build();
   }
   {
-    // 婚纱与躯干并一件 wrap 几何（象牙白 calico；膨裙剪影核心）：
-    // 细高桶上身 + A 字大摆裙（从胸线下放到及地，摆围明显大过医生窄袍；
+    // 婚纱上身与裙摆分两件（同 wrap 槽同躯干叶，渲染/合并逐比特不变）：
+    // 细高桶上身 = out.torso（进躯干盒）；A 字大摆裙 = out.gown（装配处 noHit，
+    // 摆围 0.58 若并躯干盒会把臂盒整个吞掉——打手臂先中躯干，r4 实测踩出；
     // profile 按 y 升序——降序翻面透视，r3 首轮踩过）
     const p = prims(T);
     p.lathe(P.torsoProfile, { segs: 10 });
-    const barrel = p.build();
+    out.torso = p.build();
     const ps = prims(T);
     ps.lathe([[0.58, -1.00], [0.56, -0.95], [0.49, -0.75], [0.37, -0.45],
       [0.28, -0.10], [0.23, 0.20], [0.19, 0.48], [0.16, 0.62]], { segs: 12 });
-    out.torso = mergeTwo(barrel, ps.build());
+    out.gown = ps.build();
   }
   out.seamShoulder = seamRing(T, P.armW * 0.62, 0.018);
   out.seamElbow = seamRing(T, P.armW * 0.55, 0.016);

@@ -128,6 +128,15 @@ slowing to a hover (draco uses -0.20 / +0.32 for the looming Smaug pose).
 - **Thin decorations inflate hit boxes**: antennae/fins/fangs on the head enlarge the
   head OBB and players "headshot thin air". Mark them `mesh.userData.noHit = true`
   (bake skips them for hit boxes; rendering and severed-debris subtrees unaffected).
+- **Wide over-garments swallow the arm boxes**: robes / A-line gowns / tailcoats wider
+  than the body merge into the torso box and cover the arm boxes entirely — rays hit
+  torso first and arms become unshootable (butler/doctordoll/bridedoll, 2026-08-26).
+  Mark the garment `noHit` so part boxes come from the body inside the clothes
+  (dolls.js: `outfitNoHit` flag; bridedoll's skirt is a separate `out.gown` geometry
+  on the same slot/leaf, rendering bit-identical). Counter-example boundary: the
+  plague doctor's beak *is* the mask body — deliberately kept inside the head box
+  (a beak shot counts as a headshot). "Decoration" vs "body part" is a gameplay
+  call, not a blanket rule.
 - **Bright palette on dark texture does nothing**: `compensate()` clamps gain at
   `1/max(0.35, gain)` — raise the texture's base brightness first, then the palette.
 - **fleshMaps is hue-tinted (greenish)**: saturated light palettes (lake blue, sandy
