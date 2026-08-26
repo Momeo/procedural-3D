@@ -47,7 +47,11 @@ the horde, and is fully hittable/dismemberable.
      `region:'core'` tags + hitvol.js plate/core multipliers; mask-aware hit
      skipping — severed limbs no longer ghost-block shots — is a kept bug fix)
    - rag doll (creepy-cute, mostly child-sized; quadruped kitty/puppy dolls
-     on the centaur contract via `buildQuaddollRig`) → `src/species/dolls.js`
+     on the centaur contract via `buildQuaddollRig`; three tall adults —
+     hunched butler, plague-doctor (bird-beak mask + wide-brim hat + robe +
+     cane) and bride (translucent tatter-slot veil with `forceSinglePass`,
+     A-line gown merged into the torso geometry, wilted bouquet)) →
+     `src/species/dolls.js`
      (`buildDollRig` on the humanoid contract, "floppy" gait via big
      `headLoll`/arm swing; family signatures: true button eyes (lathe button
      body with raised rim + recessed four-hole center on the eye slot — the
@@ -61,9 +65,10 @@ the horde, and is fully hittable/dismemberable.
      tiny florals drawn in near-white luminance only, so palettes tint
      without the fleshMaps green shift; cotton/stitches/thread go on the
      tatter slot (vertexColors — custom geometry must add a white `color`
-     attribute, see `withWhiteColors`), patches on accent, buttons/stitches/
-     seam rings on deep; tottle is a true crawler on the crawler_true
-     contract)
+     attribute, see `withWhiteColors`; merging colored parts needs the
+     color-preserving `mergeColored`, plain `mergeTwo` drops the attribute),
+     patches on accent, buttons/stitches/seam rings on deep; lathe profiles
+     must be y-ascending or the surface turns inside-out)
 3. **Write the spec tables** (contracts below). Respect the iron rule
    `hipY = thighL + shinL` or the feet float.
 4. **Textures** (optional): follow the wraps.js/zombie.js canvas paradigm — draw albedo

@@ -27,6 +27,7 @@ import {
 } from './golem.js';
 import {
   DOLLETTE, DOLLAD, KITDOLL, PUPDOLL, TWINSIE, BUTLER, BIGDOLL,
+  DOCTORDOLL, BRIDEDOLL,
 } from './dolls.js';
 
 export const SPECIES = {
@@ -66,4 +67,6 @@ export const SPECIES = {
   twinsie:    { spec: TWINSIE,             factory: createZombieEx },  // 双子抱偶：大孩背迷你偶
   butler:     { spec: BUTLER,              factory: createZombieEx },  // 管家人偶：瘦高成年弯背+燕尾摆+礼帽
   bigdoll:    { spec: BIGDOLL,             factory: createZombieEx },  // 巨型破损布偶：Boss 档 2.2x 棉花爆出
+  doctordoll: { spec: DOCTORDOLL,          factory: createZombieEx },  // 瘟疫医生偶：高个窄袍+宽檐帽+鸟嘴面具+手杖
+  bridedoll:  { spec: BRIDEDOLL,           factory: createZombieEx },  // 新娘偶：高个 A 字大摆婚纱+半透明头纱+枯萎花束
 };

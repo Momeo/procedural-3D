@@ -74,8 +74,10 @@ const HP = { zombie: 30, crawler: 20, runner: 24, screecher: 26, bloater: 80, br
   // 基石精英，crystalgolem 悬浮精英，magmagolem Boss 档 150（两发爆头收）
   rockgolem: 90, magmagolem: 150, frostgolem: 70, crystalgolem: 110,
   // 布偶系列（dolls.js）：dollette/dollad/twinsie 小孩档一发爆头死，
-  // kitdoll/pupdoll 猫狗最低档（速度换血），butler 成年精英，bigdoll 巨偶 Boss 200（三发爆头）
-  kitdoll: 16, pupdoll: 18, dollad: 32, dollette: 34, twinsie: 40, butler: 70, bigdoll: 200 };
+  // kitdoll/pupdoll 猫狗最低档（速度换血），butler 成年精英，bigdoll 巨偶 Boss 200（三发爆头）；
+  // doctordoll/bridedoll 高个成人档与 butler 同档附近（70 上下，一发爆头死）
+  kitdoll: 16, pupdoll: 18, dollad: 32, dollette: 34, twinsie: 40, butler: 70, bigdoll: 200,
+  doctordoll: 72, bridedoll: 68 };
 const BODY_DMG = 25;
 // 配比同 horde 丧尸海；?species=xxx 切单物种模式（探针/专项验收用，默认不动）
 const ONLY = SPECIES[q.get('species')] ? q.get('species') : null;

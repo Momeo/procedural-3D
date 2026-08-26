@@ -7,7 +7,7 @@
 Everything is generated in code: geometry, textures, materials, animation. No model files,
 no texture files, no build step — plain ES modules with a single peer dependency (`three`).
 
-- **36 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons, 6 undead, 4 golems and 7 dolls) driven by pure-data specs
+- **38 built-in species** (7 zombies — including the quadruped crawler and the limbless maggot —, 4 robots, 4 flyers, 4 dragons, 6 undead, 4 golems and 9 dolls) driven by pure-data specs
   (palette / proportions / gait) — a new monster is a new table, not new machinery.
 - **Flyer support**: `gait.kind = 'fly'` wing-flap/hover gaits (two wing pairs on the
   extended joint slots, wingless hover with a spin-ring on the tatter channel), cruise
@@ -37,8 +37,11 @@ no texture files, no build step — plain ES modules with a single peer dependen
   child-sized — girl doll with yarn braids, boy doll in overalls, a small
   kitty doll and puppy doll (quadruped centaur gait: pointed ears + yarn
   whiskers + slim tail vs floppy ears + muzzle + stub tail), a twin carrying
-  a mini doll on its back, a tall hunched butler (~1.95 m) and a boss-tier
-  giant torn doll (scale 2.2).
+  a mini doll on its back, and three distinct tall adults (~1.9 m): a tall
+  hunched butler, a plague-doctor doll (bird-beak mask with button eyes
+  behind goggle rings, wide-brim hat, floor-length robe, cane) and a bride
+  doll (translucent tatter-slot veil with forceSinglePass, A-line gown,
+  wilted bouquet) — plus a boss-tier giant torn doll (scale 2.2).
   Family signatures: true button eyes (light tactile button body with a
   raised rim and a recessed four-hole center, contrast thread in crossed or
   parallel stitches — button colour varies per species), stuffing cotton
@@ -73,7 +76,7 @@ no texture files, no build step — plain ES modules with a single peer dependen
 | ![Golem lineup](docs/screenshots/golem_lineup.png) | ![Golem horde](docs/screenshots/golem_horde.png) |
 | 4 golems (rock/magma/frost/crystal) | mix_golem horde |
 | ![Doll lineup](docs/screenshots/doll_lineup.png) | ![Doll horde](docs/screenshots/doll_horde.png) |
-| 7 dolls (girl/boy/kitty/puppy/twin/butler/giant) | mix_doll horde |
+| 9 dolls (girl/boy/kitty/puppy/twin/butler/giant/doctor/bride) | mix_doll horde |
 | ![Gun pal gallery](docs/screenshots/gunpals_gallery.png) | ![First-person hold](docs/screenshots/gunpals_firstperson.png) |
 | Gun pal gallery | First-person hold (stagbite) |
 | ![Overheat state](docs/screenshots/gunpals_overheat.png) | ![Dismemberment & ragdoll](docs/screenshots/dismember_ragdoll.png) |
@@ -182,7 +185,7 @@ draw calls and texture writes, not fps. Single monster ≈ 1.2k triangles, 14 jo
 | Dragon horde, 4 dragon species × 300 (`mix_dragon`) | **23** |
 | Undead horde, 6 undead species × 300 (`mix_undead`) | **39** |
 | Golem horde, 4 golem species × 300 (`mix_golem`) | **23** |
-| Doll horde, 7 doll species × 300 (`mix_doll`) | **51** |
+| Doll horde, 9 doll species × 300 (`mix_doll`) | **65** |
 | Mixed horde, all 28 mix species × 300 (measured at 0.5.0) | **165** |
 | Shooter (horde + viewmodel + blood/decal pools), 300 | **42** (peak ≤ 48 with debris + ragdolls) |
 | Distance-tiered LOD animation | 115/300 joint-texture rows written at default camera; 0/300 from 55 m |

@@ -1,7 +1,10 @@
 /**
  * 破旧布娃娃谱系（dolls.js）：女童偶 dollette / 男童偶 dollad / 双子抱偶 twinsie /
- * 小猫偶 kitdoll / 小狗偶 pupdoll / 管家人偶 butler / 巨型破损布偶 bigdoll。
- * 气质：被丢弃的旧布偶，creepy-cute；小孩子体型占多数（7 种里 3 种小孩 + 2 种小宠物）。
+ * 小猫偶 kitdoll / 小狗偶 pupdoll / 管家人偶 butler / 巨型破损布偶 bigdoll /
+ * 瘟疫医生偶 doctordoll / 新娘偶 bridedoll。
+ * 气质：被丢弃的旧布偶，creepy-cute；体型两档——小孩/小宠物占多数，
+ * 高个成人档三席（butler 瘦高弯背礼帽 / doctordoll 窄袍宽檐帽鸟嘴 /
+ * bridedoll A 字大摆+半透明头纱），20m 剪影三选一不错认。
  * （命名注意：物理布娃娃是 demo/ragdoll.js 的 ragdoll——本谱系是布艺玩偶，
  *  文件叫 dolls.js 防撞名。）
  *
@@ -703,6 +706,19 @@ function mergeTwo(g1, g2) {
   g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   g.computeBoundingSphere();
+  return g;
+}
+
+/** mergeTwo 的保色版：tatter 槽 vertexColors 契约下合并自定义几何
+ *  （bridedoll 头纱 = 垂带 quadStrips + 顶盖 lathe，两件都带全白 color；
+ *  用 mergeTwo 会丢 color 属性 → vertexColors 材质整件染黑，r3 首轮踩过） */
+function mergeColored(g1, g2) {
+  const g = mergeTwo(g1, g2);
+  const n = g.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  col.set(g1.attributes.color.array);
+  col.set(g2.attributes.color.array, g1.attributes.position.count * 3);
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
 
@@ -1616,5 +1632,399 @@ export const BIGDOLL = {
   windupLean: 0.10,      // 巨偶蓄力后仰压小（golem 同款读法坑）
   makeMaterials: makeDollMaterials,
   build: buildBigdoll,
+  animate: MUMMY.animate,
+};
+
+// ---------------------------------------------------------------------------
+// 物种七：瘟疫医生偶 doctordoll —— 高个成人偶（~1.92m，butler 同档）：
+// 鸟嘴长喙面具（象牙白长喙是剪影核心 + 黑圆镜圈 + 纽扣眼藏镜后）+
+// 宽檐黑帽 + 及地长袍 + 手杖（noHit）；气质阴冷，缓慢踱步。
+// 剪影词：窄袍直筒 + 宽檐帽 + 前伸长喙——与 butler（瘦高弯背+礼帽）、
+// bridedoll（A 字大裙摆+头纱）20m 三选一不错认。
+// ---------------------------------------------------------------------------
+
+const DOCTORDOLLGEO = new Map();
+
+function doctordollGeometry(P) {
+  let out = DOCTORDOLLGEO.get(P);
+  if (out) return out;
+  const T = WRAP_TILES;
+  out = {};
+  {
+    const p = parts(T);
+    p.box(P.hipW, 0.20, P.bodyD * 0.85, { y: 0.02, top: 1.0, bottom: 0.85 });
+    out.pelvis = p.build();
+  }
+  {
+    // 细长四肢（袍下只露鞋尖）
+    const p = parts(T);
+    p.box(P.legW, P.thighL, P.legW, { y: -P.thighL / 2, top: 1.05, bottom: 0.92 });
+    out.thigh = p.build();
+    const ps = parts(T);
+    ps.box(P.legW * 0.88, P.shinL, P.legW * 0.88, { y: -P.shinL / 2, top: 1.0, bottom: 0.92 });
+    ps.box(P.legW * 0.9, 0.07, P.legW * 1.7, { y: -P.shinL + 0.03, z: P.legW * 0.3, top: 0.95, bottom: 0.95 });
+    out.shin = ps.build();
+  }
+  {
+    const p = parts(T);
+    p.box(P.armW, P.upperL, P.armW, { y: -P.upperL / 2, top: 1.05, bottom: 0.92 });
+    out.upper = p.build();
+    const pf = parts(T);
+    pf.box(P.armW * 0.85, P.foreL, P.armW * 0.85, { y: -P.foreL / 2, top: 1.0, bottom: 0.92 });
+    pf.box(P.armW * 1.0, 0.07, P.armW * 1.05, { y: -P.foreL - 0.02, top: 0.9, bottom: 0.9 });
+    out.fore = pf.build();
+  }
+  {
+    // 高瘦躯干（细高桶）+ 及地长袍（wrapDark：窄直筒微扩，剪影与新娘大摆区分）
+    // （lathe profile 必须按 y 升序——降序翻面会透视见腿，r3 首轮踩过）
+    const p = prims(T);
+    p.lathe(P.torsoProfile, { segs: 10 });
+    out.torso = p.build();
+    const po = prims(T);
+    po.lathe([[0.32, -0.95], [0.29, -0.65], [0.25, -0.30], [0.22, 0.05],
+      [0.21, 0.30], [0.20, 0.55], [0.15, 0.68]], { segs: 10 });
+    out.outfit = po.build();
+  }
+  out.seamShoulder = seamRing(T, P.armW * 0.62, 0.018);
+  out.seamElbow = seamRing(T, P.armW * 0.55, 0.016);
+  out.seamHip = seamRing(T, P.legW * 0.62, 0.018);
+  out.seamKnee = seamRing(T, P.legW * 0.56, 0.016);
+  {
+    // 长脸头（灰布，正面被面具盖住）
+    const p = prims(T);
+    p.ellipsoid(P.headW * 0.48, P.headH * 0.52, P.headD * 0.46, { y: P.headH * 0.5, rings: 5, segs: 8 });
+    out.skull = p.build();
+    // 纽扣眼藏镜后：深牛角扣四孔交叉线（深扣配米白线）
+    const be = buttonEyes(T, P, { style: 'cross', threadLight: true });
+    out.buttons = be.buttons;
+    out.holes = be.holes;
+    out.threads = be.threads;
+    out.threadLight = be.threadLight;
+    // 面具遮口鼻，无缝线嘴
+  }
+  {
+    // 鸟嘴面具（accent 象牙白，贴面件 noHit）：脸甲 + 前伸长喙（剪影核心）
+    const p = prims(T);
+    p.ellipsoid(P.headW * 0.44, P.headH * 0.50, P.headD * 0.40,
+      { y: P.headH * 0.48, z: P.headD * 0.10, rings: 5, segs: 8 });      // 脸甲
+    p.lathe([[0.050, 0.0], [0.054, 0.05], [0.042, 0.16], [0.026, 0.27],
+      [0.008, 0.35], [0.001, 0.38]],
+      { y: P.headH * 0.42, z: P.headD * 0.30, rx: Math.PI / 2 + 0.16, segs: 8 });  // 长喙微下弯
+    out.mask = p.build();
+  }
+  {
+    // 黑圆镜圈一对（deep 槽环带，纽扣眼藏镜后——镜圈把扣缘框住）
+    const ey = P.headH * 0.52, ez = P.headD * 0.50, ex = P.headW * 0.24;
+    const p = prims(T);
+    for (const s of [-1, 1]) {
+      p.cyl(P.headW * 0.175, P.headW * 0.175, 0.018,
+        { x: s * ex, y: ey, z: ez + 0.006, rx: Math.PI / 2, radial: 10, capTop: false, capBot: false });
+    }
+    // 镜圈后脑箍带（半圈细带绕头，医生镜的绑带读法）
+    p.cyl(P.headW * 0.50, P.headW * 0.50, 0.020,
+      { y: ey, z: -P.headD * 0.04, radial: 10, capTop: false, capBot: false });
+    out.goggles = p.build();
+  }
+  {
+    // 补丁：袍前襟一块长方补（accent 象牙白布块 + deep 虚线针脚）
+    const surf = makeBarrelSurf(mkRadiusFn(P.torsoProfile));
+    const pt = patchOnBarrel(surf, -0.45, 0.22, 0.42, 0.18);
+    out.patches = pt.patch;
+    out.dashes = pt.dashes;
+  }
+  {
+    // 棉花凸出：右肩缝 + 左袍摆破口两簇
+    out.cotton = cottonCluster(T, 20260908, [
+      [0.17, 0.52, 0.07], [-0.20, 0.06, 0.16],
+    ]);
+  }
+  DOCTORDOLLGEO.set(P, out);
+  return out;
+}
+
+export function buildDoctordoll(spec, mats, actor) {
+  const rig = buildDollRig(spec, mats, actor, doctordollGeometry(spec.proportions));
+  const G = doctordollGeometry(spec.proportions);
+  const P = spec.proportions;
+  const { add, count } = rig.tools;
+  // 面具/镜圈贴面件（noHit——长喙撑头盒会让爆头打空气，§4.8 同因）
+  add(rig.neck, G.mask, mats.accent, 'head', true);
+  add(rig.neck, G.goggles, mats.deep, 'head', true);
+  // 宽檐黑帽（wrapDark；宽平檐+矮帽筒是医生的帽型，与 butler 高礼帽区分）
+  const T = WRAP_TILES;
+  const hat = prims(T);
+  hat.cyl(0.30, 0.32, 0.016, { y: P.headH * 0.96, radial: 10 });                       // 宽平檐
+  hat.cyl(P.headW * 0.40, P.headW * 0.46, P.headH * 0.30, { y: P.headH * 1.10, radial: 8 });  // 矮帽筒
+  add(rig.neck, hat.build(), mats.wrapDark, 'head', true);
+  // 手杖（deep 深色细杖 + 杖头小球；右手持，noHit 细长装饰件）
+  const cane = prims(T);
+  cane.cyl(0.010, 0.013, 0.62, { y: -0.33, radial: 5 });
+  cane.ellipsoid(0.026, 0.030, 0.026, { y: 0.0, rings: 3, segs: 5 });
+  add(rig.arms[1].elbow, cane.build(), mats.deep, 'body', true)
+    .position.set(0, -P.foreL * 0.96, 0.02);
+  rig.triangles = count();
+  return rig;
+}
+
+export const DOCTORDOLL = {
+  id: 'doctordoll',
+  name: 'Doctordoll（瘟疫医生偶）',
+
+  speed: 0.95,           // 缓慢踱步（阴冷沉稳）
+  scale: 1.02,
+  height: 1.92,
+  radius: 0.36,
+
+  palette: {
+    wrap: 0xa8a094,      // 灰棉布（臂/头露布）
+    wrapDark: 0x232020,  // 黑（及地长袍/宽檐帽）
+    deep: 0x14100c,
+    eye: 0x4a3a2c,       // 深牛角扣（藏黑镜圈后，配米白线迹）
+    eyeGlow: 0.08,
+    accent: 0xe2dac6,    // 象牙白（鸟嘴面具/补丁）
+    tatter: 0xe8e0d0,    // 米白（棉花/线头）
+  },
+
+  proportions: {
+    hipY: 0.94, hipW: 0.30, bodyD: 0.24,
+    legX: 0.10, legW: 0.10, thighL: 0.46, shinL: 0.48,   // hipY=thighL+shinL，铁律
+    torsoY: 0.10, chestW: 0.38, chestH: 0.62,
+    torsoProfile: [[0.001, -0.02], [0.15, 0.02], [0.19, 0.20], [0.20, 0.40],
+      [0.18, 0.54], [0.13, 0.64], [0.001, 0.68]],
+    shoulderX: 0.21, shoulderY: 0.52, armW: 0.075, upperL: 0.44, foreL: 0.47,
+    headY: 0.74, headW: 0.23, headH: 0.29, headD: 0.24,
+    tatterRest: 0.2,
+    tatters: [
+      // 袍摆松脱线头 + 袖口拖线
+      { on: 'torso', x: 0.12, y: 0.02, z: 0.12, w: 0.05, h: 0.26, yaw: 0.3, cut: 2, swing: 0.8, out: 0.16 },
+      { on: 'arm', side: -1, x: 0.02, y: -0.30, z: 0, w: 0.04, h: 0.20, yaw: -0.5, cut: 1, swing: 1.0, out: 0.14 },
+    ],
+  },
+
+  gait: {
+    rate: 0.72,            // 慢步频
+    stride: 0.50,          // 踱步：步幅收敛（长袍罩腿，大步会穿帮）
+    armSwing: 0.28,        // 摆臂克制（沉稳；持杖手少甩）
+    armReach: -0.08,
+    armSplay: 0.12,
+    elbowBend: -0.10,
+    lean: -0.12,           // 微前倾（阴冷压迫，不如 butler 恭敬弯背）
+    sway: 0.08,            // 上身稳（不晃）
+    hipTwist: 0.07,
+    bob: 0.04,
+    headLoll: 0.10,        // 头稳（医生是清醒的 creepy，不软塌）
+    headDroop: 0.06,       // 微俯视
+  },
+
+  makeMaterials: makeDollMaterials,
+  build: buildDoctordoll,
+  animate: MUMMY.animate,
+};
+
+// ---------------------------------------------------------------------------
+// 物种八：新娘偶 bridedoll —— 高个成人偶（~1.88m，butler 同档）：
+// 半透明头纱（tatter 槽 wraith 定案：transparent+depthWrite:false+forceSinglePass
+// 防双 pass）+ A 字大摆婚纱（裙摆与躯干并一件 wrap 几何，膨裙剪影）+
+// 捧枯萎花束（noHit）+ 纽扣眼 + 缝线笑嘴；气质凄美，裙摆限制小碎步。
+// 剪影词：宽 A 字摆 + 垂纱——与 butler（瘦高+礼帽）、doctordoll（窄袍+宽檐帽
+// +长喙）20m 三选一不错认。
+// ---------------------------------------------------------------------------
+
+const BRIDEDOLLGEO = new Map();
+
+/** 新娘材质：标准布偶套 + tatter 槽改半透明头纱（wraith 方案）。
+ *  tatter 是双面槽——transparent 双面会被 three 分正反两遍渲染（每种 +1
+ *  draw call 撞破 calls 契约），必须 forceSinglePass。
+ *  注意：本种的棉花凸出因此改挂 wrap 槽（不透明白棉更实，见 buildBridedoll）。 */
+function makeBrideMaterials(spec, rng) {
+  const mats = makeDollMaterials(spec, rng);
+  mats.tatter.transparent = true;
+  mats.tatter.opacity = 0.55;
+  mats.tatter.depthWrite = false;
+  mats.tatter.forceSinglePass = true;
+  return mats;
+}
+
+function bridedollGeometry(P) {
+  let out = BRIDEDOLLGEO.get(P);
+  if (out) return out;
+  const T = WRAP_TILES;
+  out = {};
+  {
+    const p = parts(T);
+    p.box(P.hipW, 0.20, P.bodyD * 0.85, { y: 0.02, top: 1.0, bottom: 0.85 });
+    out.pelvis = p.build();
+  }
+  {
+    // 细四肢（裙摆下只露鞋尖）
+    const p = parts(T);
+    p.box(P.legW, P.thighL, P.legW, { y: -P.thighL / 2, top: 1.05, bottom: 0.92 });
+    out.thigh = p.build();
+    const ps = parts(T);
+    ps.box(P.legW * 0.88, P.shinL, P.legW * 0.88, { y: -P.shinL / 2, top: 1.0, bottom: 0.92 });
+    ps.box(P.legW * 0.9, 0.07, P.legW * 1.6, { y: -P.shinL + 0.03, z: P.legW * 0.28, top: 0.95, bottom: 0.95 });
+    out.shin = ps.build();
+  }
+  {
+    const p = parts(T);
+    p.box(P.armW, P.upperL, P.armW, { y: -P.upperL / 2, top: 1.05, bottom: 0.92 });
+    out.upper = p.build();
+    const pf = parts(T);
+    pf.box(P.armW * 0.85, P.foreL, P.armW * 0.85, { y: -P.foreL / 2, top: 1.0, bottom: 0.92 });
+    pf.box(P.armW * 1.0, 0.07, P.armW * 1.05, { y: -P.foreL - 0.02, top: 0.9, bottom: 0.9 });
+    out.fore = pf.build();
+  }
+  {
+    // 婚纱与躯干并一件 wrap 几何（象牙白 calico；膨裙剪影核心）：
+    // 细高桶上身 + A 字大摆裙（从胸线下放到及地，摆围明显大过医生窄袍；
+    // profile 按 y 升序——降序翻面透视，r3 首轮踩过）
+    const p = prims(T);
+    p.lathe(P.torsoProfile, { segs: 10 });
+    const barrel = p.build();
+    const ps = prims(T);
+    ps.lathe([[0.58, -1.00], [0.56, -0.95], [0.49, -0.75], [0.37, -0.45],
+      [0.28, -0.10], [0.23, 0.20], [0.19, 0.48], [0.16, 0.62]], { segs: 12 });
+    out.torso = mergeTwo(barrel, ps.build());
+  }
+  out.seamShoulder = seamRing(T, P.armW * 0.62, 0.018);
+  out.seamElbow = seamRing(T, P.armW * 0.55, 0.016);
+  out.seamHip = seamRing(T, P.legW * 0.62, 0.018);
+  out.seamKnee = seamRing(T, P.legW * 0.56, 0.016);
+  {
+    // 圆柔脸（比医生脸短圆）+ 纽扣眼（牛角米白扣平行两道线）+ 缝线笑嘴
+    const p = prims(T);
+    p.ellipsoid(P.headW * 0.50, P.headH * 0.48, P.headD * 0.46, { y: P.headH * 0.48, rings: 5, segs: 8 });
+    out.skull = p.build();
+    const be = buttonEyes(T, P, { style: 'parallel' });
+    out.buttons = be.buttons;
+    out.holes = be.holes;
+    out.threads = be.threads;
+    out.threadLight = be.threadLight;
+    out.mouth = stitchMouth(P, 0.55, 0.12);   // 缝线笑嘴（凄美的微笑）
+  }
+  {
+    // 头纱（tatter 槽半透明）：顶盖 + 后/侧六条垂落纱带（脸前留空露出纽扣眼）
+    const quads = [];
+    const push2 = (c0, t0, l0, c1, t1, l1, w) => {
+      quads.push({ c: c0, t: t0, n: [t0[2], 0, -t0[0]], len: l0, w });
+      quads.push({ c: c1, t: t1, n: [t1[2], 0, -t1[0]], len: l1, w: w * 0.9 });
+    };
+    // 六条垂纱：方位角从侧前绕到侧后（±70°..±160°，正前 ±70° 内留空）
+    const HY = P.headH * 0.92, HR = P.headW * 0.52;
+    for (const aDeg of [-160, -115, -70, 70, 115, 160]) {
+      const a = aDeg * Math.PI / 180;
+      const sx = Math.sin(a), sz = -Math.cos(a);      // 0° = 正后（-z），±90° = 两侧
+      const rootx = sx * HR * 0.9, rootz = sz * HR * 0.9;
+      const flare = 0.35;                              // 下垂微外飘
+      const tl = Math.hypot(1, flare);
+      push2(
+        [rootx + sx * 0.10, HY - 0.17, rootz + sz * 0.10],
+        [sx * flare / tl, -1 / tl, sz * flare / tl], 0.36,
+        [rootx + sx * 0.24, HY - 0.48, rootz + sz * 0.24],
+        [sx * (flare * 0.6) / tl, -1 / tl, sz * (flare * 0.6) / tl], 0.30,
+        0.085);
+    }
+    const strips = withWhiteColors(quadStrips(quads));
+    // 顶盖（lathe 半罩覆住头顶）——保色合并（丢 color 会整件染黑，见 mergeColored）
+    const p = prims(T);
+    p.lathe([[0.001, P.headH * 1.04], [P.headW * 0.30, P.headH * 1.00],
+      [P.headW * 0.50, P.headH * 0.88], [P.headW * 0.54, P.headH * 0.74]], { segs: 10 });
+    out.veil = mergeColored(strips, withWhiteColors(p.build()));
+  }
+  {
+    // 补丁：上身左襟一块（accent 枯褐布块 + deep 虚线针脚）
+    const surf = makeBarrelSurf(mkRadiusFn(P.torsoProfile));
+    const pt = patchOnBarrel(surf, -0.5, 0.30, 0.40, 0.16);
+    out.patches = pt.patch;
+    out.dashes = pt.dashes;
+  }
+  {
+    // 棉花凸出：右肩缝 + 裙腰破口两簇（挂 wrap 槽不透明白棉，见 buildBridedoll）
+    out.cotton = cottonCluster(T, 20260909, [
+      [0.17, 0.52, 0.07], [-0.19, 0.10, 0.15],
+    ]);
+  }
+  BRIDEDOLLGEO.set(P, out);
+  return out;
+}
+
+export function buildBridedoll(spec, mats, actor) {
+  const rig = buildDollRig(spec, mats, actor, bridedollGeometry(spec.proportions));
+  const G = bridedollGeometry(spec.proportions);
+  const P = spec.proportions;
+  const { add, count } = rig.tools;
+  // 头纱（tatter 半透明，贴面件 noHit；垂带不撑头盒防打空气爆头）
+  add(rig.neck, G.veil, mats.tatter, 'head', true);
+  // 棉花凸出改挂 wrap 槽：tatter 已改半透明头纱，白棉走不透明更实（五要素读法优先）
+  add(rig.torso, G.cotton, mats.wrap, 'body', true);
+  // 枯萎花束（accent 枯褐：三茎下垂 + 三朵垂頭干花 + 两片枯叶；
+  // 右手倒提（茎从拳心垂下、花头朝地——凄美读法），noHit）
+  const T = WRAP_TILES;
+  const boq = prims(T);
+  for (const k of [-1, 0, 1]) {
+    boq.cyl(0.005, 0.007, 0.20, { x: k * 0.014, y: -0.10, z: Math.abs(k) * 0.010, rz: k * 0.16, radial: 4 });  // 茎（下垂）
+    // 干花头（垂頭朝地：花盘倒扣）
+    boq.ellipsoid(0.022, 0.028, 0.019, { x: k * 0.040, y: -0.215, z: 0.012 + Math.abs(k) * 0.016, rx: 2.6, rings: 3, segs: 5 });
+  }
+  for (const s of [-1, 1]) {
+    boq.ellipsoid(0.009, 0.040, 0.016, { x: s * 0.024, y: -0.09, z: 0.008, rz: s * 0.5, rings: 3, segs: 4 });  // 枯叶
+  }
+  add(rig.arms[1].elbow, boq.build(), mats.accent, 'body', true)
+    .position.set(0, -P.foreL * 1.0, 0.035);
+  rig.triangles = count();
+  return rig;
+}
+
+export const BRIDEDOLL = {
+  id: 'bridedoll',
+  name: 'Bridedoll（新娘偶）',
+
+  speed: 0.85,           // 裙摆限制走不快
+  scale: 1.0,
+  height: 1.88,
+  radius: 0.38,          // 摆围大，占位略宽
+
+  palette: {
+    wrap: 0xe4dccd,      // 象牙白棉布（婚纱/头/臂，calico 印花）
+    wrapDark: 0x9a8a8a,  // 灰紫（袖下段/鞋）
+    deep: 0x14100c,
+    eye: 0xd8c8a8,       // 牛角米白扣（平行线迹）
+    eyeGlow: 0.08,
+    accent: 0x7a5a3a,    // 枯褐（枯萎花束/补丁）
+    tatter: 0xe8e0d0,    // 米白（半透明头纱）
+  },
+
+  proportions: {
+    hipY: 0.92, hipW: 0.30, bodyD: 0.24,
+    legX: 0.10, legW: 0.095, thighL: 0.45, shinL: 0.47,   // hipY=thighL+shinL，铁律
+    torsoY: 0.10, chestW: 0.36, chestH: 0.60,
+    torsoProfile: [[0.001, -0.02], [0.14, 0.02], [0.18, 0.20], [0.19, 0.40],
+      [0.17, 0.54], [0.12, 0.62], [0.001, 0.66]],
+    shoulderX: 0.20, shoulderY: 0.52, armW: 0.07, upperL: 0.42, foreL: 0.45,
+    headY: 0.72, headW: 0.24, headH: 0.28, headD: 0.24,
+    tatterRest: 0.2,
+    tatters: [
+      // 裙摆松脱线头（半透明薄纱线头随头纱材质，读作纱线）
+      { on: 'torso', x: -0.14, y: 0.04, z: 0.10, w: 0.05, h: 0.22, yaw: -0.3, cut: 2, swing: 1.0, out: 0.16 },
+    ],
+  },
+
+  gait: {
+    rate: 1.05,            // 高步频小碎步（裙摆限制迈不开）
+    stride: 0.30,          // 步幅明显调小（裙撑读法）
+    armSwing: 0.30,
+    armReach: -0.30,       // 双臂微前收（捧花读法）
+    armSplay: 0.14,
+    elbowBend: -0.20,
+    lean: -0.08,
+    sway: 0.10,
+    hipTwist: 0.08,
+    bob: 0.05,
+    headLoll: 0.18,        // 凄美垂首微晃
+    headDroop: 0.14,       // 低头（新娘的哀愁）
+  },
+
+  makeMaterials: makeBrideMaterials,
+  build: buildBridedoll,
   animate: MUMMY.animate,
 };
